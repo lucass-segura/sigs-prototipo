@@ -8,11 +8,13 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
-      # El rol de la aplicación no es superusuario: así los triggers de la
-      # auditoría no se pueden saltear con SQL directo.
+      # Dos roles sin superusuario: el dueño migra y el de la aplicación solo lee e inserta en la
+      # auditoría. Así los triggers no se pueden saltear con SQL directo (db/init/01-rol-aplicacion.sh).
       DB_NAME: ${DB_NAME:-sigs}
-      DB_USER: ${DB_USER:-sigs_app}
-      DB_PASSWORD: ${DB_PASSWORD:-sigs_app}
+      DB_OWNER_USER: ${DB_OWNER_USER:-sigs_owner}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:-sigs_owner}
+      DB_APP_USER: ${DB_APP_USER:-sigs_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:-sigs_app}
     volumes:
       - datos:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -38,8 +40,11 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME:-sigs}
-      DB_USER: ${DB_USER:-sigs_app}
-      DB_PASSWORD: ${DB_PASSWORD:-sigs_app}
+      # Migraciones, datos de demo y comandos de manage.py: rol dueño. El servidor: rol de la aplicación.
+      DB_OWNER_USER: ${DB_OWNER_USER:-sigs_owner}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:-sigs_owner}
+      DB_APP_USER: ${DB_APP_USER:-sigs_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:-sigs_app}
       EMAIL_HOST: mailpit
       EMAIL_PORT: "1025"
       DOCUMENTOS_DIR: /data/documentos

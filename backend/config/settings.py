@@ -49,12 +49,21 @@ TEMPLATES = [
     }
 ]
 
+# Dos roles en PostgreSQL (docs/DISENO.md §1):
+# - dueño (`DB_OWNER_USER`): es dueño de la base, migra y carga los datos de demo. Es el rol por defecto
+#   de los comandos de `manage.py` y de las pruebas.
+# - aplicación (`DB_APP_USER`): el que usa Gunicorn. No es dueño ni superusuario y en las tablas de solo
+#   altas solo puede leer e insertar. El entrypoint lo activa exportando `DB_USER` y `DB_PASSWORD`.
+DB_OWNER_USER = os.environ.get("DB_OWNER_USER", "sigs_owner")
+DB_OWNER_PASSWORD = os.environ.get("DB_OWNER_PASSWORD", "sigs_owner")
+DB_APP_USER = os.environ.get("DB_APP_USER", "sigs_app")
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": os.environ.get("DB_NAME", "sigs"),
-        "USER": os.environ.get("DB_USER", "sigs_app"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", "sigs_app"),
+        "USER": os.environ.get("DB_USER", DB_OWNER_USER),
+        "PASSWORD": os.environ.get("DB_PASSWORD", DB_OWNER_PASSWORD),
         "HOST": os.environ.get("DB_HOST", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
     }
