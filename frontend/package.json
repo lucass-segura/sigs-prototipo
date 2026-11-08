@@ -1,0 +1,29 @@
+{
+  "name": "sigs-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SIGS · Gestión de siniestros (prototipo académico, datos ficticios)",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "node .next/standalone/server.js",
+    "lint": "eslint ."
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "next": "15.5.29",
+    "react": "19.1.10",
+    "react-dom": "19.1.10"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "15.5.29",
+    "typescript": "^5.9.0"
+  }
+}
