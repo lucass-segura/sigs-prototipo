@@ -32,10 +32,12 @@ docker compose up --build
 
 La primera vez tarda unos minutos porque construye las imágenes. Al arrancar, el backend:
 
-1. aplica las migraciones (tablas, restricciones, triggers de la auditoría y el conjunto de reglas RS-1.0);
+1. aplica las migraciones con el rol dueño de la base (tablas, restricciones, triggers de la auditoría, permisos del rol de la aplicación y el conjunto de reglas RS-1.0);
 2. carga los datos de demo (`seed_demo`) y los 30 escenarios de prueba (`seed_escenarios`), solo si la base está vacía.
 
 No hacen falta pasos manuales. Cuando en la consola aparece `nginx` iniciado, la aplicación está lista.
+
+La base usa dos roles sin superusuario (`DB_OWNER_USER` migra y carga la demo; `DB_APP_USER` es el que usa el servidor y en la auditoría solo puede leer e insertar). Los roles se crean al inicializar el volumen `datos`: si quedó uno de una versión anterior, empezá de cero con `docker compose down -v`.
 
 | Servicio | URL |
 |---|---|
@@ -111,7 +113,7 @@ En los escenarios R04 activa, R04 no activa, R04 límite y R05 activa, la regla 
 backend/    Django 5 + Django REST Framework (API, permisos, auditoría y motor de reglas)
 frontend/   Next.js (App Router) + TypeScript
 nginx/      Proxy inverso: / → frontend, /api → backend
-db/init/    Crea el rol de la aplicación en PostgreSQL (sin superusuario)
+db/init/    Crea los roles de PostgreSQL (dueño y aplicación, ninguno superusuario)
 docs/       Especificación del prototipo, decisiones de diseño y maquetas de referencia
 scripts/    empaquetar.sh: genera el zip limpio para Drive
 ```

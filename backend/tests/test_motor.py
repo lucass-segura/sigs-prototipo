@@ -205,12 +205,13 @@ def test_los_topes_por_grupo_y_el_total_de_100(rs10):
 
 @pytest.mark.parametrize("puntaje_objetivo, prioridad", [(0, "baja"), (24, "baja"), (25, "media"), (49, "media"), (50, "alta")])
 def test_la_prioridad_se_toma_de_los_umbrales_del_conjunto(rs10, puntaje_objetivo, prioridad):
-    # se reutiliza R08 con puntos ajustados para cubrir los bordes 24/25 y 49/50
+    # se reutiliza R08 con puntos ajustados para cubrir los bordes 24/25 y 49/50 (y su máximo, que topa los puntos)
     conjunto = copy.deepcopy(rs10)
     conjunto["topes"]["grupos"]["Denuncia"] = 100
     for regla in conjunto["reglas"]:
         if regla["codigo"] == "R08":
             regla["parametros"]["puntos"] = puntaje_objetivo
+            regla["puntos_max"] = 100
     resultado = evaluar(entradas(denuncia="2026-06-25"), conjunto)
     assert resultado["puntaje"] == puntaje_objetivo and resultado["prioridad"] == prioridad
 

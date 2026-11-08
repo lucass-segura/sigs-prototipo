@@ -20,7 +20,12 @@ sigs/
   scripts/empaquetar.sh
 ```
 
-La base de PostgreSQL se usa con el rol `sigs_app` (NOSUPERUSER, CREATEDB). El superusuario solo existe dentro del contenedor `db`. Los tests corren con `docker compose run --rm backend pytest`.
+La base de PostgreSQL usa dos roles, ninguno superusuario (el superusuario solo existe dentro del contenedor `db` y solo crea los roles al inicializar el volumen, con `db/init/01-rol-aplicacion.sh`):
+
+- **Dueño** (`DB_OWNER_USER`, por defecto `sigs_owner`, NOSUPERUSER, CREATEDB): es dueño de la base y de las tablas. Corre las migraciones, los datos de demo (`seed_demo`, `seed_escenarios`), los comandos de `manage.py` y los tests (`docker compose run --rm backend pytest`). `settings.py` lo usa por defecto.
+- **Aplicación** (`DB_APP_USER`, por defecto `sigs_app`, NOSUPERUSER, sin CREATEDB, no es dueño de nada): es el que usa Gunicorn. `entrypoint.sh` migra y carga los datos con el dueño y después exporta `DB_USER` y `DB_PASSWORD` con las credenciales de este rol antes de arrancar el servidor. La migración `0004` le otorga USAGE sobre el esquema, SELECT, INSERT, UPDATE y DELETE sobre las tablas comunes, USAGE y SELECT sobre las secuencias, y **solo SELECT e INSERT** sobre `auditoria`, `cierre`, `evaluacion` y `senal`, sin UPDATE, DELETE ni TRUNCATE. Además `ALTER DEFAULT PRIVILEGES` le da los permisos comunes sobre las tablas futuras (si una migración futura crea otra tabla de solo altas, tiene que revocar el resto). Si el rol no existe, la migración omite los permisos.
+
+Como el rol de la aplicación no es dueño, tampoco puede hacer `ALTER TABLE ... DISABLE TRIGGER` ni borrar los triggers: la auditoría no se modifica ni con SQL directo del usuario de la aplicación. Los nombres y las claves se cambian con `DB_OWNER_USER`, `DB_OWNER_PASSWORD`, `DB_APP_USER` y `DB_APP_PASSWORD` (ver `env.example`).
 
 ## 2. Modelo de datos (tablas iguales al diagrama, `db_table` explícito)
 
@@ -28,22 +33,22 @@ Campos del diagrama más estos extras técnicos:
 
 - `usuario`: modelo de usuario propio (`AbstractBaseUser`, `USERNAME_FIELD = "email"`, el email se guarda en minúsculas). Extras: `password`, `last_login`, `intentos_fallidos`, `bloqueado_en`, `creado_en`. `is_active` es una propiedad que devuelve `activo`. CheckConstraint: `espacio_id` es nulo si y solo si el rol es `superadministrador`. No se usa `PermissionsMixin` ni el admin de Django.
 - `poliza`: se crea una por siniestro (la relación 1:N lo permite). `inicio_vigencia` y `primer_pago` son fechas que pueden ser nulas.
-- `persona`: única por (`tipo_identificador`, `identificador`). Al guardar, el `identificador` se normaliza sin puntos ni espacios y en mayúsculas. Si ya existe, se reutiliza y no se pisa el nombre.
-- `bien`: `identificador_norm` es único y se normaliza en mayúsculas, sin espacios, guiones ni puntos (`AB-123 CD` → `AB123CD`). Se reutiliza si ya existe.
+- `persona`: única por (`tipo_identificador`, `identificador`). Al guardar, el `identificador` se normaliza sin puntos ni espacios y en mayúsculas. Si ya existe, se reutiliza y no se pisa el nombre. `persona.nombre` guarda el primer nombre y **nunca se devuelve a un cliente**: el nombre de cada caso está en `participacion.nombre`.
+- `bien`: `identificador_norm` es único y se normaliza en mayúsculas, sin espacios, guiones ni puntos (`AB-123 CD` → `AB123CD`). Se reutiliza si ya existe. Solo guarda tipo e identificador: `descripcion` y `atributos` del bien no se escriben ni se devuelven (están en `bien_afectado`).
 - `siniestro`: `fecha_hecho` es DateTime y no puede ser nula. `fecha_denuncia` es Date y puede ser nula. `numero_expediente` es único (si no viene, se genera `EXP-AAAA-NNNN`). Extras: `motivo_anulacion`, `creado_en`, `actualizado_en`. Estados: `borrador`, `en_analisis`, `cerrado`, `archivado`, `anulado`.
-- `participacion`: única por (siniestro, persona, rol). Una persona puede tener varios roles en el mismo caso, por ejemplo "asegurado y conductor".
-- `bien_afectado`: único por (siniestro, bien).
+- `participacion`: única por (siniestro, persona, rol). Una persona puede tener varios roles en el mismo caso, por ejemplo "asegurado y conductor". Extra `nombre`: el nombre de la persona tal como lo declaró el perito en este caso (puede quedar vacío). Cada caso es privado de su espacio: un perito que carga un DNI sin nombre no recibe el que escribió otro espacio.
+- `bien_afectado`: único por (siniestro, bien). Extras `descripcion` y `atributos` (JSON): los que declaró el perito en este caso, con la misma regla de privacidad. El JSON del siniestro arma personas y bienes **solo** con estos datos del caso. Una migración de datos (`0005`) copió los valores globales de `persona` y `bien` a los casos que ya existían.
 - Índices en `participacion(persona_id)`, `participacion(siniestro_id)`, `bien_afectado(bien_id)`, `bien_afectado(siniestro_id)` y `siniestro(estado, confirmado_en)`.
 - `documento`: extras `nombre_original`, `tipo_contenido`, `subido_por`. `estado` vale `recibido` al subir. El archivo va a `DOCUMENTOS_DIR/<siniestro_id>/<uuid>` y nunca tiene URL pública.
 - `nota`: fecha, hora y autor.
 - `tarea` con estados `pendiente`, `en_curso` y `hecha`, y la tabla extra `tarea_cambio` (tarea, estado_anterior, estado_nuevo, usuario, fecha).
 - `cierre`: FK no única al siniestro (varios registros por siniestro). El vigente es el último por `creado_en` e `id`. `resultado_reclamo` ∈ `aprobado`, `rechazado`, `desistido`, `otra_finalizacion`. `valoracion` tiene un CheckConstraint de 1 a 10. `justificacion` es `CharField(500)` con un CheckConstraint de longitud mayor a 0. Extra `motivo_cambio`. `save()` sobre una fila existente y `delete()` lanzan error.
-- `conjunto_reglas`: `version` única. `topes` = `{"grupos": {"Cobertura": 30, "Persona": 35, "Bien": 25, "Antecedente": 30, "Denuncia": 10}, "total": 100, "prioridad": {"media": 25, "alta": 50}}`. Un solo `activo = true` (UniqueConstraint condicional). Extras: `creado_en`, `creado_por`, `basado_en`. Una vez creado solo puede cambiar `activo`.
-- `regla`: única por (conjunto, codigo). No se edita.
+- `conjunto_reglas`: `version` única. `topes` = `{"grupos": {"Cobertura": 30, "Persona": 35, "Bien": 25, "Antecedente": 30, "Denuncia": 10}, "total": 100, "prioridad": {"media": 25, "alta": 50}}`. Un solo `activo = true` (UniqueConstraint condicional). Extras: `creado_en`, `creado_por`, `basado_en`. Una vez creado solo puede cambiar `activo` (el modelo lo impide y un trigger lo impide también con SQL directo; tampoco se puede borrar).
+- `regla`: única por (conjunto, codigo). No se edita ni se borra (también con un trigger). Los puntos que otorga nunca superan `puntos_max`: al publicar una versión, un nivel con más puntos que el máximo da 400, y el motor además los topa.
 - `evaluacion`: `prioridad` ∈ `baja`, `media`, `alta`. `creada_en` con default `timezone.now`, para que el seed pueda fijar la fecha. Extra `motivo` ∈ `confirmacion`, `recalculo`, `antecedente_confirmado`, `escenario`. Nunca se actualiza.
 - `senal`: extras `texto_explicacion` y `dato` (JSON con el valor del caso y el umbral). Nunca se actualiza.
 - `auditoria`: extras `espacio_id` (del usuario o del siniestro, para filtrar) y `detalle` (JSON). `fecha` la asigna el servidor (`auto_now_add`). El modelo bloquea `save()` sobre una fila existente, `delete()` y `QuerySet.update()` y `QuerySet.delete()` (manager propio).
-- **Triggers en la base (migración RunSQL):** una función `sigs_bloquear_modificacion()` que hace `RAISE EXCEPTION` en BEFORE UPDATE OR DELETE FOR EACH ROW sobre `auditoria`, `cierre`, `evaluacion` y `senal`. Además, `REVOKE UPDATE, DELETE ON auditoria FROM PUBLIC`. Un test hace `UPDATE auditoria ...` y `DELETE FROM auditoria ...` con SQL directo (dentro de `transaction.atomic()`) y espera un error.
+- **Triggers en la base (migración RunSQL):** una función `sigs_bloquear_modificacion()` que hace `RAISE EXCEPTION` en BEFORE UPDATE OR DELETE FOR EACH ROW sobre `auditoria`, `cierre`, `evaluacion` y `senal`. Además, `REVOKE UPDATE, DELETE ON auditoria FROM PUBLIC`, un trigger BEFORE TRUNCATE FOR EACH STATEMENT en las mismas tablas (migración `0004`) y los permisos del rol de la aplicación (sección 1). La migración `0006` agrega `regla_inmutable` (BEFORE UPDATE OR DELETE sobre `regla`), `conjunto_reglas_sin_borrado` (BEFORE DELETE) y `conjunto_reglas_solo_activo` (BEFORE UPDATE: solo acepta el cambio de `activo`) sobre `conjunto_reglas`. Las pruebas cambian al rol de la aplicación con `SET LOCAL ROLE` y esperan error en UPDATE, DELETE, TRUNCATE y `ALTER TABLE auditoria DISABLE TRIGGER`. Un test hace `UPDATE auditoria ...` y `DELETE FROM auditoria ...` con SQL directo (dentro de `transaction.atomic()`) y espera un error.
 - Una migración de datos crea `RS-1.0` (vigente desde el 01/10/2026, activo) con las 8 reglas y estos `parametros`:
   - R01 `{"niveles": [{"max_dias": 30, "puntos": 25}, {"max_dias": 60, "puntos": 12}]}`, grupo Cobertura, puntos_max 25
   - R02 `{"min_dias": 0, "max_dias": 15, "puntos": 20}`, Cobertura, 20
@@ -73,7 +78,7 @@ Campos del diagrama más estos extras técnicos:
 - **Antecedente válido:** otro siniestro, de cualquier espacio, con `confirmado_en` no nulo y `estado` ∈ `en_analisis`, `cerrado` o `archivado`. Los anulados y los borradores nunca cuentan.
 - **Ventanas:** "en los N meses anteriores a H" quiere decir `H - N meses (relativedelta) <= H_ant < H` (estrictamente antes de H). R04 usa `0 < d(H_ant, H) <= 90`. R07 no tiene límite de tiempo.
 - **Reglas:**
-  - R01: si no hay inicio_vigencia, no es evaluable. `d = d(inicio_vigencia, H)`. El primer nivel con `d <= max_dias` da sus puntos (≤ 30 → 25, 31 a 60 → 12).
+  - R01: si no hay inicio_vigencia, no es evaluable. `d = d(inicio_vigencia, H)`. El primer nivel con `d <= max_dias` da sus puntos (≤ 30 → 25, 31 a 60 → 12). Se aplica tal como dice la especificación (`d(inicio_vigencia, H) ≤ 30 → 25`): un hecho anterior al inicio de vigencia tiene `d` negativo y también activa la regla, y el texto lo dice ("N días antes del inicio de vigencia").
   - R02: si no hay primer_pago, no es evaluable. Se activa si `0 <= d(primer_pago, H) <= 15`. Un pago posterior al hecho no la activa (supuesto 1).
   - R03: cantidad de antecedentes distintos que comparten una persona del caso, **con cualquier rol** (supuesto 2), dentro de 12 meses. Con 2 o más → 20, con 1 → 8.
   - R04: algún antecedente con persona compartida y `0 < d <= 90` → 15.
@@ -81,7 +86,8 @@ Campos del diagrama más estos extras técnicos:
   - R06: algún bien compartido (por identificador_norm) dentro de 24 meses → 25.
   - R07: algún antecedente con persona o bien compartido, con estado `cerrado` o `archivado` y cuyo **cierre vigente** tiene `irregularidad = true` → 30. Se incluye `archivado` porque un archivado ya pasó por el cierre y sigue contando como antecedente (HU-14). Un rechazo o un desistimiento sin irregularidad no la activan.
   - R08: si no hay fecha_denuncia, no es evaluable. Se activa si `d(H, fecha_denuncia) > 3` → 10.
-- Cada regla devuelve `{codigo, nombre, grupo, estado: activada|no_activada|no_evaluable, puntos, antecedentes: [{id, numero_expediente, fecha_hecho, vinculo}], texto, dato}`. Cada regla se activa una sola vez, con el nivel más alto, y lista **todos** los antecedentes que la cumplen.
+- Cada regla devuelve `{codigo, nombre, grupo, estado: activada|no_activada|no_evaluable, puntos, antecedentes: [{id, numero_expediente, fecha_hecho, vinculo}], texto, dato}`. Cada regla se activa una sola vez, con el nivel más alto, y lista **todos** los antecedentes que la cumplen. Los puntos de una regla se topan en su `puntos_max`.
+- Los nombres de personas que usan las `entradas` y los textos (también los de las personas de los antecedentes) son los que el perito declaró en **su** caso (`participacion.nombre`); si los dejó vacíos, "Persona sin nombre". Los textos no repiten lo que escribió el perito de otro espacio.
 - Topes: se suma por grupo y se corta en el tope del grupo. Después se suman los grupos y se corta en `total` (100). Prioridad: `>= alta` → alta, `>= media` → media y si no, baja. El resultado incluye `grupos: {nombre: {bruto, tope, puntos}}`, `puntaje` y `prioridad`.
 - Textos (desde la misma señal, en el lenguaje del perito):
   - R01: "El hecho ocurrió 23 días después del inicio de vigencia. Umbral 30 días." En el nivel de 12: "El hecho ocurrió 40 días después del inicio de vigencia. Umbral 60 días."
@@ -99,6 +105,7 @@ Campos del diagrama más estos extras técnicos:
 
 ## 4. Permisos y auditoría
 
+- El ingreso calcula siempre el hash de la contraseña (con un hash de relleno si la cuenta no existe o no tiene contraseña) y responde con el mismo mensaje genérico: el tiempo de respuesta no delata si la cuenta está bloqueada, de baja o no existe.
 - Autenticación con `SessionAuthentication` y CSRF obligatorio. La subclase `SesionAutenticacion` rechaza sesiones de usuarios con `activo = false` o con `bloqueado_en` no nulo.
 - **Acceso a expedientes:**
   - Solo el rol `perito` accede a los expedientes, y solo a los de su espacio (`siniestro.espacio_id == usuario.espacio_id`).

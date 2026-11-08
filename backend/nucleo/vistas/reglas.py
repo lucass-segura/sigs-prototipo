@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from .. import auditoria
 from ..models import ConjuntoReglas, Usuario
 from ..permisos import exigir_rol, no_encontrado
-from ..reglas import ESQUEMAS, conjunto_json, publicar_version, resumen_de_version, validar_parametros, validar_topes
+from ..reglas import ESQUEMAS, conjunto_json, publicar_version, resumen_de_version, validar_parametros, validar_puntos_maximos, validar_topes
 
 
 class Reglas(APIView):
@@ -61,9 +61,17 @@ class PublicarVersion(APIView):
                     not isinstance(cambio["puntos_max"], int) or isinstance(cambio["puntos_max"], bool) or cambio["puntos_max"] < 0
                 ):
                     mensajes_reglas.append(f"Los puntos máximos de {codigo} tienen que ser un entero no negativo.")
+        vigente = ConjuntoReglas.objects.get(activo=True)
+        if not mensajes_reglas:
+            # los puntos de cada nivel no pueden pasar de `puntos_max` (el nuevo o, si no cambia, el vigente)
+            vigentes = {r.codigo: r for r in vigente.reglas.all()}
+            for codigo, cambio in reglas.items():
+                actual = vigentes[codigo]
+                mensajes_reglas.extend(validar_puntos_maximos(
+                    codigo, cambio.get("parametros", actual.parametros), cambio.get("puntos_max", actual.puntos_max)
+                ))
         if mensajes_reglas:
             errores["reglas"] = mensajes_reglas
-        vigente = ConjuntoReglas.objects.get(activo=True)
         topes = datos.get("topes")
         if topes is not None:
             mensajes_topes = validar_topes(topes, list(vigente.topes["grupos"]))

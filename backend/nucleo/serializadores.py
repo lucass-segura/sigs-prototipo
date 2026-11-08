@@ -33,7 +33,11 @@ def persona_simple(usuario):
 
 
 def siniestro_json(siniestro, usuario):
-    """Siniestro completo del contrato (sección 5 de DISENO). Solo se arma para el espacio del usuario."""
+    """Siniestro completo del contrato (sección 5 de DISENO). Solo se arma para el espacio del usuario.
+
+    El nombre de las personas y la descripción y los atributos de los bienes salen de los datos del caso
+    (`participacion` y `bien_afectado`), nunca de los globales de `persona` y `bien`.
+    """
     from .expediente import cierre_vigente
     from .models import BienAfectado, Participacion
 
@@ -43,7 +47,7 @@ def siniestro_json(siniestro, usuario):
             "id": p.persona_id,
             "tipo_identificador": p.persona.tipo_identificador,
             "identificador": p.persona.identificador,
-            "nombre": p.persona.nombre,
+            "nombre": p.nombre,
             "roles": [],
         })
         entrada["roles"].append(p.rol)
@@ -52,8 +56,8 @@ def siniestro_json(siniestro, usuario):
             "id": a.bien_id,
             "tipo": a.bien.tipo,
             "identificador_norm": a.bien.identificador_norm,
-            "descripcion": a.bien.descripcion,
-            "atributos": a.bien.atributos,
+            "descripcion": a.descripcion,
+            "atributos": a.atributos,
             "detalle_dano": a.detalle_dano,
         }
         for a in BienAfectado.objects.filter(siniestro=siniestro).select_related("bien").order_by("id")

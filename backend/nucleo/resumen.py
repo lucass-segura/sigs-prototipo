@@ -14,7 +14,8 @@ def construir_resumen(origen, antecedente_id):
     """Resumen del antecedente o `None` si no está entre las coincidencias válidas del origen.
 
     Nunca incluye documentos, notas, DNI, teléfono, relato ni detalle del daño. Las personas se
-    identifican con el nombre que el perito ya conoce de su caso, no con su identificador.
+    identifican con el nombre que el perito ya conoce de su caso (el del origen, nunca el que escribió otro
+    espacio), no con su identificador.
     """
     coincidencia = next((a for a in buscar_antecedentes(origen) if a["siniestro"].pk == antecedente_id), None)
     if coincidencia is None:
@@ -22,7 +23,7 @@ def construir_resumen(origen, antecedente_id):
     antecedente = coincidencia["siniestro"]
     personas_caso, _ = datos_del_caso(origen)
     vinculos = [
-        {"tipo": "persona", "etiqueta": datos["persona"].nombre, "rol_en_antecedente": ", ".join(datos["roles"])}
+        {"tipo": "persona", "etiqueta": datos["nombre"], "rol_en_antecedente": ", ".join(datos["roles"])}
         for datos in coincidencia["personas"].values()
     ] + [
         {"tipo": "bien", "etiqueta": bien.identificador_norm, "rol_en_antecedente": "Bien afectado"}

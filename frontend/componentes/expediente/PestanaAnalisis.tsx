@@ -100,6 +100,8 @@ function TarjetaIndicador({ evaluacion }: { evaluacion: Evaluacion }) {
   );
 }
 
+const LEYENDA_PRIORIDAD = "La prioridad ordena qué revisar primero. No indica que haya fraude.";
+
 export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
   const confirmado = siniestro.estado === "en_analisis" || siniestro.estado === "cerrado" || siniestro.estado === "archivado";
   const base = `/siniestros/${siniestro.id}`;
@@ -126,11 +128,14 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
 
   if (!confirmado) {
     return (
-      <AvisoAmbar>
-        {siniestro.estado === "borrador"
-          ? "Solo un siniestro confirmado se analiza. Confirmá el borrador desde la pestaña Datos."
-          : "Un expediente anulado no se analiza."}
-      </AvisoAmbar>
+      <div className="columna">
+        <AvisoAmbar>
+          {siniestro.estado === "borrador"
+            ? "Solo un siniestro confirmado se analiza. Confirmá el borrador desde la pestaña Datos."
+            : "Un expediente anulado no se analiza."}
+        </AvisoAmbar>
+        <AvisoAmbar>{LEYENDA_PRIORIDAD}</AvisoAmbar>
+      </div>
     );
   }
 
@@ -156,7 +161,7 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
             <ErrorFormulario error={errorRecalculo} />
           </div>
         ) : null}
-        <AvisoAmbar>La prioridad ordena qué revisar primero. No indica que haya fraude.</AvisoAmbar>
+        <AvisoAmbar>{LEYENDA_PRIORIDAD}</AvisoAmbar>
         {historial.datos && historial.datos.length > 1 ? (
           <section className="tarjeta">
             <div className="tarjeta-cabecera">

@@ -217,6 +217,9 @@ class Participacion(models.Model):
     siniestro = models.ForeignKey(Siniestro, on_delete=models.CASCADE, related_name="participaciones")
     persona = models.ForeignKey(Persona, on_delete=models.PROTECT, related_name="participaciones")
     rol = models.CharField(max_length=15, choices=ROLES)
+    # Extra técnico: el nombre es del caso (como lo declaró el perito), no de la persona. Persona.nombre
+    # no se devuelve a ningún cliente.
+    nombre = models.CharField(max_length=150, blank=True, default="")
 
     class Meta:
         db_table = "participacion"
@@ -231,6 +234,10 @@ class BienAfectado(models.Model):
     siniestro = models.ForeignKey(Siniestro, on_delete=models.CASCADE, related_name="bienes_afectados")
     bien = models.ForeignKey(Bien, on_delete=models.PROTECT, related_name="afectaciones")
     detalle_dano = models.TextField(blank=True, default="")
+    # Extras técnicos: descripción y atributos del bien tal como los declaró este caso. Los de `Bien`
+    # no se devuelven a ningún cliente.
+    descripcion = models.CharField(max_length=250, blank=True, default="")
+    atributos = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "bien_afectado"

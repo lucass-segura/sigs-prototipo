@@ -47,32 +47,43 @@ def guardar_poliza(datos, poliza=None):
 
 
 def reemplazar_personas(siniestro, personas):
-    """Reemplaza las participaciones. La persona se reutiliza por (tipo, identificador) y no se pisa su nombre."""
+    """Reemplaza las participaciones.
+
+    La persona se reutiliza por (tipo, identificador) y no se pisa su nombre global. El nombre que
+    declaró el perito se guarda en la participación: es del caso y nunca sale de él.
+    """
     siniestro.participaciones.all().delete()
     for datos in personas:
+        identificador = normalizar_identificador_persona(datos["identificador"])
+        nombre = (datos.get("nombre") or "").strip()
         persona, _ = Persona.objects.get_or_create(
             tipo_identificador=datos.get("tipo_identificador") or Persona.DNI,
-            identificador=normalizar_identificador_persona(datos["identificador"]),
-            defaults={"nombre": datos.get("nombre") or normalizar_identificador_persona(datos["identificador"])},
+            identificador=identificador,
+            defaults={"nombre": nombre or identificador},
         )
         for rol in dict.fromkeys(datos.get("roles") or []):
-            Participacion.objects.get_or_create(siniestro=siniestro, persona=persona, rol=rol)
+            Participacion.objects.get_or_create(siniestro=siniestro, persona=persona, rol=rol, defaults={"nombre": nombre})
 
 
 def reemplazar_bienes(siniestro, bienes):
-    """Reemplaza los bienes afectados. El bien se reutiliza por `identificador_norm`."""
+    """Reemplaza los bienes afectados.
+
+    El bien se reutiliza por `identificador_norm` (solo guarda tipo e identificador). La descripción y
+    los atributos que declaró el perito se guardan en el bien afectado: son del caso.
+    """
     siniestro.bienes_afectados.all().delete()
     for datos in bienes:
         bien = Bien.objects.filter(identificador_norm=normalizar_identificador_bien(datos["identificador"])).first()
         if bien is None:
-            bien = Bien.objects.create(
-                tipo=datos.get("tipo") or "otro",
-                identificador=datos["identificador"],
-                descripcion=datos.get("descripcion") or "",
-                atributos=datos.get("atributos") or {},
-            )
+            bien = Bien.objects.create(tipo=datos.get("tipo") or "otro", identificador=datos["identificador"])
         BienAfectado.objects.get_or_create(
-            siniestro=siniestro, bien=bien, defaults={"detalle_dano": datos.get("detalle_dano") or ""}
+            siniestro=siniestro,
+            bien=bien,
+            defaults={
+                "detalle_dano": datos.get("detalle_dano") or "",
+                "descripcion": datos.get("descripcion") or "",
+                "atributos": datos.get("atributos") or {},
+            },
         )
 
 

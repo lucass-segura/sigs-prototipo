@@ -302,3 +302,52 @@ def test_no_hay_migraciones_pendientes():
     from django.core.management import call_command
 
     call_command("makemigrations", "--check", "--dry-run", verbosity=0)
+
+
+# --- F3 · el tiempo de respuesta no delata el estado de la cuenta -----------------------
+@pytest.fixture
+def verificaciones_de_hash():
+    """Cuenta cuántas veces se calcula un hash de contraseña (el paso lento del ingreso)."""
+    from django.contrib.auth.hashers import PBKDF2PasswordHasher
+
+    original = PBKDF2PasswordHasher.verify
+    llamadas = []
+
+    def espiar(self, password, encoded):
+        llamadas.append(encoded)
+        return original(self, password, encoded)
+
+    with mock.patch.object(PBKDF2PasswordHasher, "verify", espiar):
+        yield llamadas
+
+
+def _cuenta_en_estado(estado, perito08):
+    if estado == "bloqueada":
+        perito08.bloqueado_en = timezone.now()
+        perito08.save(update_fields=["bloqueado_en"])
+    elif estado == "baja":
+        perito08.activo = False
+        perito08.save(update_fields=["activo"])
+    elif estado == "sin_contrasena":
+        perito08.set_unusable_password()
+        perito08.save(update_fields=["password"])
+    return perito08.email if estado != "inexistente" else "nadie@sigs.test"
+
+
+@pytest.mark.parametrize("estado", ["inexistente", "bloqueada", "baja", "sin_contrasena", "habilitada"])
+def test_f3_todo_ingreso_calcula_el_hash_de_la_contrasena(estado, perito08, anonimo, verificaciones_de_hash):
+    email = _cuenta_en_estado(estado, perito08)
+    respuesta = ingresar(anonimo, email, "Contraseña.Equivocada#1")
+    assert respuesta.status_code == 400 and respuesta.json() == {"detalle": MENSAJE_GENERICO}
+    assert len(verificaciones_de_hash) == 1
+
+
+@pytest.mark.parametrize("estado", ["bloqueada", "baja"])
+def test_f3_la_clave_correcta_de_una_cuenta_bloqueada_o_de_baja_sigue_rechazada_con_el_mismo_mensaje(estado, perito08, anonimo, verificaciones_de_hash):
+    email = _cuenta_en_estado(estado, perito08)
+    respuesta = ingresar(anonimo, email, CLAVE)
+    assert respuesta.status_code == 400 and respuesta.json() == {"detalle": MENSAJE_GENERICO}
+    assert len(verificaciones_de_hash) == 1
+    perito08.refresh_from_db()
+    assert perito08.intentos_fallidos == 0  # la cuenta bloqueada o de baja no suma intentos
+    assert Auditoria.objects.filter(accion="ingreso_fallido", resultado="rechazado", objeto=f"usuario:{perito08.id}").count() == 1

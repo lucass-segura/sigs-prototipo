@@ -10,6 +10,7 @@ from .models import BienAfectado, Participacion, Siniestro
 
 TAMANIO_PAGINA = 20
 MENSAJE_VACIO = "No hay antecedentes accesibles en la red"
+SIN_NOMBRE = "Persona sin nombre"
 ESCALA_VALORACION = [
     (2, "No verificado, con elementos que lo contradicen"),
     (4, "Inconsistencias relevantes"),
@@ -51,10 +52,16 @@ def _ids_de_siniestros_vinculados(siniestro, persona_ids, bien_ids):
 
 
 def datos_del_caso(siniestro):
-    """Personas (con sus roles) y bienes del siniestro."""
+    """Personas (con sus roles) y bienes del siniestro.
+
+    `nombre` es el que el perito declaró en este caso (`participacion.nombre`); si lo dejó vacío, un texto
+    neutro. Nunca se usa `Persona.nombre`, que es global.
+    """
     personas = {}
     for p in Participacion.objects.filter(siniestro=siniestro).select_related("persona").order_by("id"):
-        entrada = personas.setdefault(p.persona_id, {"persona": p.persona, "roles": []})
+        entrada = personas.setdefault(p.persona_id, {"persona": p.persona, "roles": [], "nombre": SIN_NOMBRE})
+        if entrada["nombre"] == SIN_NOMBRE and p.nombre.strip():
+            entrada["nombre"] = p.nombre.strip()
         entrada["roles"].append(p.rol)
     bienes = [a.bien for a in BienAfectado.objects.filter(siniestro=siniestro).select_related("bien").order_by("id")]
     return personas, bienes
@@ -66,8 +73,9 @@ def buscar_antecedentes(siniestro):
     Antecedente válido: otro siniestro, de cualquier espacio, con `confirmado_en` y estado en análisis,
     cerrado o archivado. Los anulados y los borradores nunca cuentan.
 
-    Devuelve `[{"siniestro", "personas": {persona_id: {"persona", "roles"}}, "bienes": [Bien]}]` con
-    solo las personas y los bienes compartidos.
+    Devuelve `[{"siniestro", "personas": {persona_id: {"persona", "roles", "nombre"}}, "bienes": [Bien]}]`
+    con solo las personas y los bienes compartidos. El `nombre` de cada persona es el de `siniestro` (el
+    caso que consulta), no el que escribió el perito del antecedente, que puede ser de otro espacio.
     """
     personas_caso, bienes_caso = datos_del_caso(siniestro)
     ids = _ids_de_siniestros_vinculados(siniestro, set(personas_caso), {b.pk for b in bienes_caso})
@@ -81,7 +89,9 @@ def buscar_antecedentes(siniestro):
     ids_validos = [s.pk for s in candidatos]
     personas = {s.pk: {} for s in candidatos}
     for p in Participacion.objects.filter(siniestro_id__in=ids_validos, persona_id__in=list(personas_caso)).select_related("persona").order_by("id"):
-        entrada = personas[p.siniestro_id].setdefault(p.persona_id, {"persona": p.persona, "roles": []})
+        entrada = personas[p.siniestro_id].setdefault(
+            p.persona_id, {"persona": p.persona, "roles": [], "nombre": personas_caso[p.persona_id]["nombre"]}
+        )
         entrada["roles"].append(p.rol)
     bienes = {s.pk: [] for s in candidatos}
     for a in BienAfectado.objects.filter(siniestro_id__in=ids_validos, bien_id__in=[b.pk for b in bienes_caso]).select_related("bien").order_by("id"):
@@ -108,7 +118,7 @@ def vinculos_de_coincidencia(siniestro, antecedente, roles_caso):
     for persona_id, datos in antecedente["personas"].items():
         vinculos.append({
             "tipo": "persona",
-            "etiqueta": datos["persona"].nombre,
+            "etiqueta": datos["nombre"],
             "rol_en_antecedente": _roles_texto(datos["roles"]),
             "rol_en_caso": _roles_texto(roles_caso.get(persona_id, [])),
         })
@@ -128,7 +138,7 @@ def descripcion_vinculo(antecedente):
     for bien in antecedente["bienes"]:
         frases.append(f"Mismo {_sustantivo_bien(bien.tipo)} {bien.identificador_norm}")
     for datos in antecedente["personas"].values():
-        frases.append(f"{datos['persona'].nombre} figura como {_roles_texto(datos['roles'])}")
+        frases.append(f"{datos['nombre']} figura como {_roles_texto(datos['roles'])}")
     return " · ".join(frases)
 
 

@@ -23,7 +23,7 @@ from ..sesiones import cerrar_sesiones
 MAXIMO_INTENTOS = 5
 ERROR_INGRESO = "El correo o la contraseña no son correctos."
 ENLACE_INVALIDO = "El enlace no es válido o venció."
-HASH_FALSO = make_password("contraseña-de-relleno")  # iguala el tiempo de respuesta cuando el correo no existe
+HASH_FALSO = make_password("contraseña-de-relleno")  # iguala el tiempo de respuesta cuando no hay un hash real que verificar
 
 
 def _texto(datos, clave):
@@ -54,9 +54,14 @@ class Ingresar(APIView):
         with transaction.atomic():
             usuario = Usuario.objects.select_for_update().filter(email=email).first() if email else None
             habilitado = usuario is not None and usuario.activo and usuario.bloqueado_en is None
-            if usuario is None:
+            # Siempre se calcula un hash (cuenta bloqueada, de baja, sin contraseña o inexistente incluidas):
+            # el tiempo de respuesta no debe delatar el estado de la cuenta.
+            if usuario is not None and usuario.has_usable_password():
+                clave_correcta = usuario.check_password(password)
+            else:
                 check_password(password, HASH_FALSO)
-            if habilitado and usuario.check_password(password):
+                clave_correcta = False
+            if habilitado and clave_correcta:
                 usuario.intentos_fallidos = 0
                 usuario.save(update_fields=["intentos_fallidos"])
                 login(solicitud._request, usuario, backend="django.contrib.auth.backends.ModelBackend")

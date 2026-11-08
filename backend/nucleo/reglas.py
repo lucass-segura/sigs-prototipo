@@ -69,7 +69,7 @@ def _faltan(p, campos):
 
 
 ESQUEMAS = {
-    "R01": ("niveles", ("max_dias", "puntos")),
+    "R01": ("niveles", (), ("max_dias", "puntos")),
     "R02": (None, ("max_dias", "puntos")),
     "R03": ("niveles", ("ventana_meses",), ("min_antecedentes", "puntos")),
     "R04": (None, ("max_dias", "puntos")),
@@ -98,6 +98,21 @@ def validar_parametros(codigo, p):
                     errores.append(f"Cada nivel de {codigo} necesita {', '.join(campos_nivel)} como enteros no negativos.")
                     break
     return errores
+
+
+def puntos_de_la_regla(p):
+    """Todos los puntos que puede otorgar una regla según sus parámetros (uno por nivel o el propio)."""
+    if isinstance(p.get("niveles"), list):
+        return [n["puntos"] for n in p["niveles"]]
+    return [p["puntos"]]
+
+
+def validar_puntos_maximos(codigo, parametros, puntos_max):
+    """Mensajes de error si algún nivel otorga más puntos que `puntos_max` (parámetros ya validados)."""
+    mayor = max(puntos_de_la_regla(parametros))
+    if mayor > puntos_max:
+        return [f"Los puntos de {codigo} ({mayor}) no pueden superar sus puntos máximos ({puntos_max})."]
+    return []
 
 
 def validar_topes(topes, grupos_vigentes):

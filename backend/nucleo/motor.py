@@ -37,7 +37,11 @@ def conjunto_a_dict(conjunto):
 
 
 def construir_entradas(siniestro):
-    """Todo lo que usa el motor, leído de la base y listo para guardarse como JSON."""
+    """Todo lo que usa el motor, leído de la base y listo para guardarse como JSON.
+
+    Los nombres son los que el perito declaró en este caso, también para las personas de los antecedentes:
+    las explicaciones no repiten lo que escribió el perito de otro expediente.
+    """
     personas_caso, bienes_caso = datos_del_caso(siniestro)
     antecedentes = buscar_antecedentes(siniestro)
     cierres = cierres_vigentes([a["siniestro"].pk for a in antecedentes if a["siniestro"].estado in ESTADOS_CON_CIERRE])
@@ -58,7 +62,7 @@ def construir_entradas(siniestro):
                     {
                         "tipo_identificador": d["persona"].tipo_identificador,
                         "identificador": d["persona"].identificador,
-                        "nombre": d["persona"].nombre,
+                        "nombre": d["nombre"],
                         "roles": sorted(set(d["roles"])),
                     }
                     for d in a["personas"].values()
@@ -81,7 +85,7 @@ def construir_entradas(siniestro):
                 {
                     "tipo_identificador": d["persona"].tipo_identificador,
                     "identificador": d["persona"].identificador,
-                    "nombre": d["persona"].nombre,
+                    "nombre": d["nombre"],
                     "roles": sorted(set(d["roles"])),
                 }
                 for d in personas_caso.values()
@@ -173,6 +177,7 @@ def _item(antecedente, vinculo):
 
 
 def _resultado(regla, estado, puntos, texto, dato, antecedentes=()):
+    puntos = min(puntos, regla["puntos_max"])  # una regla nunca otorga más que su máximo
     return {
         "codigo": regla["codigo"],
         "nombre": regla["nombre"],
