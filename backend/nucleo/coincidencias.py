@@ -7,7 +7,7 @@ import math
 from datetime import timedelta
 
 from .expediente import cierres_vigentes, inicio_del_dia_local
-from .models import BienAfectado, Participacion, Siniestro
+from .models import Bien, BienAfectado, Participacion, Siniestro
 
 TAMANIO_PAGINA = 20
 MENSAJE_VACIO = "No hay antecedentes accesibles en la red"
@@ -53,7 +53,10 @@ def _ids_de_siniestros_vinculados(siniestro, persona_ids, bien_ids):
 
 
 def datos_del_caso(siniestro):
-    """Personas (con sus roles) y bienes del siniestro.
+    """Personas (con sus roles) y bienes identificables del siniestro.
+
+    Solo los bienes de tipo `Bien.TIPOS_IDENTIFICABLES` (vehículo y motocicleta) se devuelven: los demás se
+    registran en el caso pero nunca cruzan con otros casos (S23).
 
     `nombre` es el que el perito declaró en este caso (`participacion.nombre`); si lo dejó vacío, un texto
     neutro. Nunca se usa `Persona.nombre`, que es global.
@@ -64,7 +67,11 @@ def datos_del_caso(siniestro):
         if entrada["nombre"] == SIN_NOMBRE and p.nombre.strip():
             entrada["nombre"] = p.nombre.strip()
         entrada["roles"].append(p.rol)
-    bienes = [a.bien for a in BienAfectado.objects.filter(siniestro=siniestro).select_related("bien").order_by("id")]
+    bienes = [
+        a.bien
+        for a in BienAfectado.objects.filter(siniestro=siniestro, bien__tipo__in=Bien.TIPOS_IDENTIFICABLES)
+        .select_related("bien").order_by("id")
+    ]
     return personas, bienes
 
 

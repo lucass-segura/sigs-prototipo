@@ -1,0 +1,12 @@
+# Archivo extra de Docker Compose para arrancar la aplicación sobre una base armada con los scripts SQL
+# (db/sql/01_crear_base.sql y 02_cargar_datos_demo.sql): el backend no corre `seed_demo` ni `seed_escenarios`.
+# La base se puede elegir con DB_NAME (por defecto `sigs`).
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f db/sql/compose.sin-seeds.yml up -d --build
+#
+# Equivale a poner CARGAR_DATOS_DEMO=false en el archivo .env.
+services:
+  backend:
+    environment:
+      CARGAR_DATOS_DEMO: "false"

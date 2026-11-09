@@ -79,6 +79,16 @@ export function aInputFecha(valor: string | null | undefined): string {
   return p ? `${p.a}-${p.m}-${p.d}` : "";
 }
 
+/** Valor para `<input type="time">` a partir de `HH:MM:SS`. */
+export function aInputHora(valor: string | null | undefined): string {
+  return valor ? valor.slice(0, 5) : "";
+}
+
+/** 10:20 h */
+export function formatoHora(valor: string | null | undefined): string {
+  return valor ? `${valor.slice(0, 5)} h` : "—";
+}
+
 export function hoyISO(): string {
   const p = partes(new Date().toISOString());
   return p ? `${p.a}-${p.m}-${p.d}` : "";

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { api, erroresDeCampo } from "@/lib/api";
-import { formatoFecha, formatoFechaHora } from "@/lib/formato";
+import { formatoFecha, formatoFechaHora, formatoHora } from "@/lib/formato";
 import { ETIQUETA_ROL_PERSONA, ETIQUETA_TIPO_BIEN } from "@/lib/etiquetas";
 import type { Siniestro } from "@/lib/tipos";
 import { Campo } from "../Campo";
@@ -99,8 +99,13 @@ export function PestanaDatos({ siniestro, alCambiar, alConfirmar }: Props) {
               <div className="dato-par"><span className="dato-clave">Tipo de siniestro</span><span className="dato-valor">{siniestro.tipo}</span></div>
               <div className="dato-par"><span className="dato-clave">Fecha y hora del hecho</span><span className="dato-valor">{formatoFechaHora(siniestro.fecha_hecho)}</span></div>
               <div className="dato-par"><span className="dato-clave">Fecha de denuncia</span><span className="dato-valor">{formatoFecha(siniestro.fecha_denuncia)}</span></div>
+              <div className="dato-par"><span className="dato-clave">Número de denuncia</span><span className="dato-valor mono">{siniestro.numero_denuncia || "—"}</span></div>
+              <div className="dato-par"><span className="dato-clave">Hora de la denuncia</span><span className="dato-valor">{formatoHora(siniestro.hora_denuncia)}</span></div>
+              <div className="dato-par"><span className="dato-clave">Asesor que carga</span><span className="dato-valor">{siniestro.asesor || "—"}</span></div>
               <div className="dato-par"><span className="dato-clave">Lugar</span><span className="dato-valor">{siniestro.lugar || "—"}</span></div>
               <div className="dato-par"><span className="dato-clave">Relato</span><span className="dato-valor">{siniestro.relato || "—"}</span></div>
+              <div className="dato-par"><span className="dato-clave">Intervenciones</span><span className="dato-valor">{siniestro.intervenciones || "—"}</span></div>
+              <div className="dato-par"><span className="dato-clave">Documentación adjunta</span><span className="dato-valor">{siniestro.documentacion_adjunta || "—"}</span></div>
             </div>
           </section>
 

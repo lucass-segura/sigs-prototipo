@@ -157,6 +157,9 @@ class Bien(models.Model):
         ("computadora", "Computadora"),
         ("otro", "Otro"),
     ]
+    # Solo estos bienes se identifican con un dato único (la patente) y cruzan entre casos (S23). Los demás
+    # se registran en el caso con su identificador y su descripción, pero nunca cruzan.
+    TIPOS_IDENTIFICABLES = ("vehiculo", "motocicleta")
 
     tipo = models.CharField(max_length=20, choices=TIPOS)
     identificador_norm = models.CharField(max_length=60, unique=True)
@@ -200,6 +203,13 @@ class Siniestro(models.Model):
     confirmado_en = models.DateTimeField(null=True, blank=True)
     # Extras técnicos
     motivo_anulacion = models.TextField(blank=True, default="")
+    # Datos de la denuncia del Anexo 1 del Entregable 4 que el diagrama no tiene (S24). `fecha_denuncia` sigue
+    # siendo una fecha: R08 no usa la hora.
+    numero_denuncia = models.CharField(max_length=60, blank=True, default="")
+    hora_denuncia = models.TimeField(null=True, blank=True)
+    asesor = models.CharField(max_length=100, blank=True, default="")
+    intervenciones = models.CharField(max_length=250, blank=True, default="")
+    documentacion_adjunta = models.TextField(blank=True, default="")
     creado_en = models.DateTimeField(default=timezone.now)
     actualizado_en = models.DateTimeField(auto_now=True)
 

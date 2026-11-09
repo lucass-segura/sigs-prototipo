@@ -57,6 +57,15 @@ class FechaHoraFlexible(serializers.DateTimeField):
         return super().to_internal_value(valor)
 
 
+class HoraOpcional(serializers.TimeField):
+    """Hora `HH:MM` (o `HH:MM:SS`); la cadena vacía se toma como «sin dato»."""
+
+    def run_validation(self, data=serializers.empty):
+        if data == "":
+            data = None
+        return super().run_validation(data)
+
+
 class PolizaEntrada(serializers.Serializer):
     numero = serializers.CharField(max_length=60, allow_blank=True, required=False, default="")
     compania = serializers.CharField(max_length=150, allow_blank=True, required=False, default="")
@@ -96,6 +105,12 @@ class SiniestroEntrada(serializers.Serializer):
         "invalid": "La fecha del hecho no tiene un formato válido."})
     fecha_denuncia = FechaOpcional(required=False, allow_null=True,
                                    error_messages={"invalid": "La fecha de denuncia no tiene un formato válido."})
+    hora_denuncia = HoraOpcional(required=False, allow_null=True,
+                                 error_messages={"invalid": "La hora de la denuncia no tiene un formato válido (HH:MM)."})
+    numero_denuncia = serializers.CharField(max_length=60, required=False, allow_blank=True)
+    asesor = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    intervenciones = serializers.CharField(max_length=250, required=False, allow_blank=True)
+    documentacion_adjunta = serializers.CharField(required=False, allow_blank=True)
     lugar = serializers.CharField(max_length=250, required=False, allow_blank=True)
     relato = serializers.CharField(required=False, allow_blank=True)
     personas = PersonaEntrada(many=True, required=False)

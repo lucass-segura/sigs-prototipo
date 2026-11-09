@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, erroresDeCampo } from "@/lib/api";
-import { aInputFecha, aInputFechaHora } from "@/lib/formato";
+import { aInputFecha, aInputFechaHora, aInputHora } from "@/lib/formato";
 import {
   ETIQUETA_ROL_PERSONA,
   ETIQUETA_TIPO_BIEN,
@@ -81,6 +81,11 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
   const [tipo, setTipo] = useState("");
   const [fechaHecho, setFechaHecho] = useState("");
   const [fechaDenuncia, setFechaDenuncia] = useState("");
+  const [horaDenuncia, setHoraDenuncia] = useState("");
+  const [numeroDenuncia, setNumeroDenuncia] = useState("");
+  const [asesor, setAsesor] = useState("");
+  const [intervenciones, setIntervenciones] = useState("");
+  const [documentacionAdjunta, setDocumentacionAdjunta] = useState("");
   const [lugar, setLugar] = useState("");
   const [relato, setRelato] = useState("");
   const [personas, setPersonas] = useState<FilaPersona[]>(() => [personaVacia()]);
@@ -102,6 +107,11 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
     setTipo(s.tipo);
     setFechaHecho(aInputFechaHora(s.fecha_hecho));
     setFechaDenuncia(aInputFecha(s.fecha_denuncia));
+    setHoraDenuncia(aInputHora(s.hora_denuncia));
+    setNumeroDenuncia(s.numero_denuncia ?? "");
+    setAsesor(s.asesor ?? "");
+    setIntervenciones(s.intervenciones ?? "");
+    setDocumentacionAdjunta(s.documentacion_adjunta ?? "");
     setLugar(s.lugar ?? "");
     setRelato(s.relato ?? "");
     setPersonas(
@@ -166,6 +176,11 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
       tipo: tipo.trim(),
       ...(fechaHecho ? { fecha_hecho: fechaHecho } : {}),
       fecha_denuncia: fechaDenuncia || null,
+      hora_denuncia: horaDenuncia || null,
+      numero_denuncia: numeroDenuncia.trim(),
+      asesor: asesor.trim(),
+      intervenciones: intervenciones.trim(),
+      documentacion_adjunta: documentacionAdjunta.trim(),
       lugar: lugar.trim(),
       relato: relato.trim(),
       personas: personasEnviadas,
@@ -300,11 +315,33 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
                   <input id="fecha-denuncia" type="date" value={fechaDenuncia} onChange={(e) => setFechaDenuncia(e.target.value)} />
                 </Campo>
               </div>
+              <div className="rejilla-campos col-3">
+                <Campo etiqueta="Número de denuncia" id="numero-denuncia" errores={erroresDeCampo(error, "numero_denuncia")}>
+                  <input id="numero-denuncia" className="mono" value={numeroDenuncia} onChange={(e) => setNumeroDenuncia(e.target.value)} />
+                </Campo>
+                <Campo etiqueta="Hora de la denuncia" id="hora-denuncia" errores={erroresDeCampo(error, "hora_denuncia")}>
+                  <input id="hora-denuncia" type="time" value={horaDenuncia} onChange={(e) => setHoraDenuncia(e.target.value)} />
+                </Campo>
+                <Campo etiqueta="Asesor que carga" id="asesor" errores={erroresDeCampo(error, "asesor")}>
+                  <input id="asesor" value={asesor} onChange={(e) => setAsesor(e.target.value)} />
+                </Campo>
+              </div>
               <Campo etiqueta="Lugar" id="lugar" errores={erroresDeCampo(error, "lugar")}>
                 <input id="lugar" value={lugar} onChange={(e) => setLugar(e.target.value)} />
               </Campo>
               <Campo etiqueta="Relato" id="relato" errores={erroresDeCampo(error, "relato")}>
                 <textarea id="relato" value={relato} onChange={(e) => setRelato(e.target.value)} />
+              </Campo>
+              <Campo etiqueta="Intervenciones" id="intervenciones" errores={erroresDeCampo(error, "intervenciones")}>
+                <input
+                  id="intervenciones"
+                  value={intervenciones}
+                  placeholder="Por ejemplo, bomberos y policía"
+                  onChange={(e) => setIntervenciones(e.target.value)}
+                />
+              </Campo>
+              <Campo etiqueta="Documentación adjunta" id="documentacion-adjunta" errores={erroresDeCampo(error, "documentacion_adjunta")}>
+                <textarea id="documentacion-adjunta" value={documentacionAdjunta} onChange={(e) => setDocumentacionAdjunta(e.target.value)} />
               </Campo>
             </div>
           </section>
@@ -399,7 +436,7 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
                   <Campo
                     etiqueta="Identificador"
                     id={`b-id-${b.clave}`}
-                    ayuda="Dominio, IMEI o número de serie. Se normaliza sin espacios ni guiones."
+                    ayuda="Dominio, IMEI o número de serie. Se normaliza sin espacios ni guiones. Solo los vehículos y las motos se cruzan con otros casos por su patente."
                     errores={erroresDeCampo(error, `bienes.${indice}.identificador`)}
                   >
                     <input

@@ -11,3 +11,4 @@ dist/
 *.zip
 .atl/
 .tmp/
+frontend/pnpm-lock.yaml

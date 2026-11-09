@@ -1,0 +1,2337 @@
+-- =====================================================================================================
+-- SIGS · 01_crear_base.sql
+-- Crea los roles, la base de datos y el esquema completo del prototipo, con las reglas RS-1.0.
+--
+-- GENERADO por scripts/generar_sql.sh a partir de la base migrada de verdad. No lo edites a mano:
+-- si cambia una migración, volvé a generarlo.
+--
+-- Qué hace:
+--   1. Crea los roles `sigs_owner` (dueño de las tablas; migra) y `sigs_app` (el que usa la aplicación) si
+--      no existen. En `auditoria`, `cierre`, `evaluacion` y `senal`, `sigs_app` solo puede leer e insertar.
+--   2. Crea la base de datos (por defecto `sigs`) si no existe.
+--   3. Crea las tablas, restricciones, índices, funciones, triggers de solo altas y permisos.
+--   4. Carga las reglas RS-1.0 y las filas de `django_migrations`, para que Django vea la base como
+--      migrada (`python manage.py migrate --check` no informa nada pendiente).
+--   Si la base ya tiene el esquema, no hace nada y lo avisa. Se puede correr más de una vez.
+--
+-- Cómo correrlo (con psql, como superusuario de PostgreSQL):
+--     psql -U postgres -f db/sql/01_crear_base.sql
+--   Con otro nombre de base:
+--     psql -U postgres -v base=sigs_prueba -f db/sql/01_crear_base.sql
+--   Con Docker Compose, sobre el contenedor `db` (carga también los datos de demo):
+--     ./scripts/cargar_sql.sh
+--
+-- Después, para tener datos de prueba: db/sql/02_cargar_datos_demo.sql.
+--
+-- Las contraseñas de los roles (`sigs_owner` y `sigs_app`) son las de desarrollo del docker-compose.yml.
+-- Si usás este script fuera de una prueba local, cambialas con ALTER ROLE.
+-- =====================================================================================================
+\set ON_ERROR_STOP on
+\if :{?base}
+\else
+  \set base sigs
+\endif
+
+-- 1. Roles (protegidos con DO para poder correr el script otra vez)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'sigs_owner') THEN
+    CREATE ROLE sigs_owner LOGIN PASSWORD 'sigs_owner' NOSUPERUSER CREATEDB NOCREATEROLE;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'sigs_app') THEN
+    CREATE ROLE sigs_app LOGIN PASSWORD 'sigs_app' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+  END IF;
+  -- El dueño es miembro del rol de la aplicación solo para que las pruebas puedan hacer SET ROLE.
+  IF NOT pg_has_role('sigs_owner', 'sigs_app', 'MEMBER') THEN
+    GRANT sigs_app TO sigs_owner;
+  END IF;
+END
+$$;
+
+-- 2. Base de datos
+SELECT format('CREATE DATABASE %I OWNER sigs_owner', :'base')
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'base')
+\gexec
+REVOKE ALL ON DATABASE :"base" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"base" TO sigs_app;
+
+\connect :base
+SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'siniestro') AS ya_existe \gset
+
+\if :ya_existe
+  \echo 'La base ya tiene el esquema de SIGS: no se crea nada.'
+\else
+-- 3 y 4. Esquema y datos de arranque, creados por el rol dueño (así lo es de las tablas)
+SET ROLE sigs_owner;
+
+--
+-- PostgreSQL database dump
+--
+
+
+-- Dumped from database version 16.15
+-- Dumped by pg_dump version 16.15
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: sigs_bloquear_modificacion(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sigs_bloquear_modificacion() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'Los registros de % no se pueden modificar ni borrar.', TG_TABLE_NAME
+        USING ERRCODE = 'integrity_constraint_violation';
+END;
+$$;
+
+
+--
+-- Name: sigs_conjunto_solo_activo(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sigs_conjunto_solo_activo() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        IF (to_jsonb(NEW) - 'activo') IS DISTINCT FROM (to_jsonb(OLD) - 'activo') THEN
+            RAISE EXCEPTION 'Un conjunto de reglas publicado solo puede cambiar el campo activo.'
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+        RETURN NEW;
+    END;
+    $$;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: auditoria; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auditoria (
+    id bigint NOT NULL,
+    accion character varying(120) NOT NULL,
+    objeto character varying(250) NOT NULL,
+    resultado character varying(10) NOT NULL,
+    fecha timestamp with time zone NOT NULL,
+    detalle jsonb NOT NULL,
+    usuario_id bigint,
+    espacio_id bigint,
+    siniestro_origen_id bigint
+);
+
+
+--
+-- Name: auditoria_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.auditoria ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.auditoria_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: auth_group; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_group (
+    id integer NOT NULL,
+    name character varying(150) NOT NULL
+);
+
+
+--
+-- Name: auth_group_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.auth_group ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.auth_group_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: auth_group_permissions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_group_permissions (
+    id bigint NOT NULL,
+    group_id integer NOT NULL,
+    permission_id integer NOT NULL
+);
+
+
+--
+-- Name: auth_group_permissions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.auth_group_permissions ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.auth_group_permissions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: auth_permission; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_permission (
+    id integer NOT NULL,
+    name character varying(255) NOT NULL,
+    content_type_id integer NOT NULL,
+    codename character varying(100) NOT NULL
+);
+
+
+--
+-- Name: auth_permission_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.auth_permission ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.auth_permission_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: bien; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.bien (
+    id bigint NOT NULL,
+    tipo character varying(20) NOT NULL,
+    identificador_norm character varying(60) NOT NULL,
+    descripcion character varying(250) NOT NULL,
+    atributos jsonb NOT NULL
+);
+
+
+--
+-- Name: bien_afectado; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.bien_afectado (
+    id bigint NOT NULL,
+    detalle_dano text NOT NULL,
+    bien_id bigint NOT NULL,
+    siniestro_id bigint NOT NULL,
+    descripcion character varying(250) NOT NULL,
+    atributos jsonb NOT NULL
+);
+
+
+--
+-- Name: bien_afectado_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.bien_afectado ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.bien_afectado_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: bien_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.bien ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.bien_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: cierre; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.cierre (
+    id bigint NOT NULL,
+    resultado_reclamo character varying(20) NOT NULL,
+    irregularidad boolean NOT NULL,
+    conclusion text NOT NULL,
+    valoracion smallint NOT NULL,
+    justificacion character varying(500) NOT NULL,
+    creado_en timestamp with time zone NOT NULL,
+    motivo_cambio text NOT NULL,
+    perito_id bigint NOT NULL,
+    siniestro_id bigint NOT NULL,
+    documentos_respaldo jsonb NOT NULL,
+    observacion_respaldo character varying(500) NOT NULL,
+    CONSTRAINT cierre_justificacion_no_vacia CHECK (((justificacion)::text ~ '\S'::text)),
+    CONSTRAINT cierre_valoracion_1_a_10 CHECK (((valoracion >= 1) AND (valoracion <= 10))),
+    CONSTRAINT cierre_valoracion_check CHECK ((valoracion >= 0))
+);
+
+
+--
+-- Name: cierre_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.cierre ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.cierre_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: conjunto_reglas; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conjunto_reglas (
+    id bigint NOT NULL,
+    version character varying(20) NOT NULL,
+    vigente_desde date NOT NULL,
+    topes jsonb NOT NULL,
+    activo boolean NOT NULL,
+    creado_en timestamp with time zone NOT NULL,
+    basado_en_id bigint,
+    creado_por_id bigint
+);
+
+
+--
+-- Name: conjunto_reglas_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.conjunto_reglas ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.conjunto_reglas_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: django_content_type; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.django_content_type (
+    id integer NOT NULL,
+    app_label character varying(100) NOT NULL,
+    model character varying(100) NOT NULL
+);
+
+
+--
+-- Name: django_content_type_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.django_content_type ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.django_content_type_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: django_migrations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.django_migrations (
+    id bigint NOT NULL,
+    app character varying(255) NOT NULL,
+    name character varying(255) NOT NULL,
+    applied timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: django_migrations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.django_migrations ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.django_migrations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: django_session; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.django_session (
+    session_key character varying(40) NOT NULL,
+    session_data text NOT NULL,
+    expire_date timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: documento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.documento (
+    id bigint NOT NULL,
+    tipo character varying(60) NOT NULL,
+    archivo_ref character varying(250) NOT NULL,
+    estado character varying(20) NOT NULL,
+    recibido_en timestamp with time zone NOT NULL,
+    nombre_original character varying(250) NOT NULL,
+    tipo_contenido character varying(120) NOT NULL,
+    tamanio bigint NOT NULL,
+    subido_por_id bigint,
+    siniestro_id bigint NOT NULL
+);
+
+
+--
+-- Name: documento_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.documento ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.documento_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: espacio_trabajo; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.espacio_trabajo (
+    id bigint NOT NULL,
+    nombre character varying(150) NOT NULL,
+    creado_en timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: espacio_trabajo_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.espacio_trabajo ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.espacio_trabajo_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: evaluacion; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.evaluacion (
+    id bigint NOT NULL,
+    puntaje smallint NOT NULL,
+    prioridad character varying(10) NOT NULL,
+    entradas jsonb NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    motivo character varying(30) NOT NULL,
+    conjunto_id bigint NOT NULL,
+    siniestro_id bigint NOT NULL,
+    CONSTRAINT evaluacion_puntaje_check CHECK ((puntaje >= 0))
+);
+
+
+--
+-- Name: evaluacion_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.evaluacion ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.evaluacion_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: nota; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.nota (
+    id bigint NOT NULL,
+    texto text NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    autor_id bigint NOT NULL,
+    siniestro_id bigint NOT NULL
+);
+
+
+--
+-- Name: nota_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.nota ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.nota_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: participacion; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.participacion (
+    id bigint NOT NULL,
+    rol character varying(15) NOT NULL,
+    persona_id bigint NOT NULL,
+    siniestro_id bigint NOT NULL,
+    nombre character varying(150) NOT NULL
+);
+
+
+--
+-- Name: participacion_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.participacion ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.participacion_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: persona; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.persona (
+    id bigint NOT NULL,
+    identificador character varying(40) NOT NULL,
+    tipo_identificador character varying(10) NOT NULL,
+    nombre character varying(150) NOT NULL
+);
+
+
+--
+-- Name: persona_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.persona ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.persona_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: poliza; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.poliza (
+    id bigint NOT NULL,
+    numero character varying(60) NOT NULL,
+    compania character varying(150) NOT NULL,
+    cobertura character varying(150) NOT NULL,
+    inicio_vigencia date,
+    primer_pago date
+);
+
+
+--
+-- Name: poliza_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.poliza ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.poliza_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: regla; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.regla (
+    id bigint NOT NULL,
+    codigo character varying(5) NOT NULL,
+    nombre character varying(150) NOT NULL,
+    grupo character varying(30) NOT NULL,
+    parametros jsonb NOT NULL,
+    puntos_max smallint NOT NULL,
+    conjunto_id bigint NOT NULL,
+    CONSTRAINT regla_puntos_max_check CHECK ((puntos_max >= 0))
+);
+
+
+--
+-- Name: regla_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.regla ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.regla_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: senal; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.senal (
+    id bigint NOT NULL,
+    estado character varying(15) NOT NULL,
+    puntos smallint NOT NULL,
+    antecedentes jsonb NOT NULL,
+    texto_explicacion text NOT NULL,
+    dato jsonb NOT NULL,
+    evaluacion_id bigint NOT NULL,
+    regla_id bigint NOT NULL,
+    CONSTRAINT senal_puntos_check CHECK ((puntos >= 0))
+);
+
+
+--
+-- Name: senal_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.senal ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.senal_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: siniestro; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.siniestro (
+    id bigint NOT NULL,
+    numero_expediente character varying(40) NOT NULL,
+    tipo character varying(150) NOT NULL,
+    fecha_hecho timestamp with time zone NOT NULL,
+    fecha_denuncia date,
+    lugar character varying(250) NOT NULL,
+    relato text NOT NULL,
+    estado character varying(15) NOT NULL,
+    confirmado_en timestamp with time zone,
+    motivo_anulacion text NOT NULL,
+    creado_en timestamp with time zone NOT NULL,
+    actualizado_en timestamp with time zone NOT NULL,
+    espacio_id bigint NOT NULL,
+    perito_id bigint NOT NULL,
+    poliza_id bigint,
+    asesor character varying(100) NOT NULL,
+    documentacion_adjunta text NOT NULL,
+    hora_denuncia time without time zone,
+    intervenciones character varying(250) NOT NULL,
+    numero_denuncia character varying(60) NOT NULL
+);
+
+
+--
+-- Name: siniestro_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.siniestro ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.siniestro_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: tarea; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tarea (
+    id bigint NOT NULL,
+    titulo character varying(250) NOT NULL,
+    estado character varying(10) NOT NULL,
+    vence_en date,
+    creada_en timestamp with time zone NOT NULL,
+    siniestro_id bigint NOT NULL
+);
+
+
+--
+-- Name: tarea_cambio; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tarea_cambio (
+    id bigint NOT NULL,
+    estado_anterior character varying(10) NOT NULL,
+    estado_nuevo character varying(10) NOT NULL,
+    fecha timestamp with time zone NOT NULL,
+    tarea_id bigint NOT NULL,
+    usuario_id bigint NOT NULL
+);
+
+
+--
+-- Name: tarea_cambio_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.tarea_cambio ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.tarea_cambio_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: tarea_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.tarea ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.tarea_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: usuario; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.usuario (
+    id bigint NOT NULL,
+    password character varying(128) NOT NULL,
+    last_login timestamp with time zone,
+    nombre character varying(150) NOT NULL,
+    email character varying(254) NOT NULL,
+    rol character varying(20) NOT NULL,
+    activo boolean NOT NULL,
+    contacto_email character varying(254) NOT NULL,
+    contacto_visible boolean NOT NULL,
+    intentos_fallidos integer NOT NULL,
+    bloqueado_en timestamp with time zone,
+    creado_en timestamp with time zone NOT NULL,
+    espacio_id bigint,
+    CONSTRAINT usuario_espacio_nulo_solo_superadmin CHECK ((((espacio_id IS NULL) AND ((rol)::text = 'superadministrador'::text)) OR ((NOT ((rol)::text = 'superadministrador'::text)) AND (espacio_id IS NOT NULL)))),
+    CONSTRAINT usuario_intentos_fallidos_check CHECK ((intentos_fallidos >= 0))
+);
+
+
+--
+-- Name: usuario_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.usuario ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.usuario_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: auditoria auditoria_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auditoria
+    ADD CONSTRAINT auditoria_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_group auth_group_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_group
+    ADD CONSTRAINT auth_group_name_key UNIQUE (name);
+
+
+--
+-- Name: auth_group_permissions auth_group_permissions_group_id_permission_id_0cd325b0_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_group_permissions
+    ADD CONSTRAINT auth_group_permissions_group_id_permission_id_0cd325b0_uniq UNIQUE (group_id, permission_id);
+
+
+--
+-- Name: auth_group_permissions auth_group_permissions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_group_permissions
+    ADD CONSTRAINT auth_group_permissions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_group auth_group_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_group
+    ADD CONSTRAINT auth_group_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_permission auth_permission_content_type_id_codename_01ab375a_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_permission
+    ADD CONSTRAINT auth_permission_content_type_id_codename_01ab375a_uniq UNIQUE (content_type_id, codename);
+
+
+--
+-- Name: auth_permission auth_permission_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_permission
+    ADD CONSTRAINT auth_permission_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: bien_afectado bien_afectado_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bien_afectado
+    ADD CONSTRAINT bien_afectado_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: bien_afectado bien_afectado_unico; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bien_afectado
+    ADD CONSTRAINT bien_afectado_unico UNIQUE (siniestro_id, bien_id);
+
+
+--
+-- Name: bien bien_identificador_norm_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bien
+    ADD CONSTRAINT bien_identificador_norm_key UNIQUE (identificador_norm);
+
+
+--
+-- Name: bien bien_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bien
+    ADD CONSTRAINT bien_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: cierre cierre_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cierre
+    ADD CONSTRAINT cierre_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: conjunto_reglas conjunto_reglas_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conjunto_reglas
+    ADD CONSTRAINT conjunto_reglas_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: conjunto_reglas conjunto_reglas_version_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conjunto_reglas
+    ADD CONSTRAINT conjunto_reglas_version_key UNIQUE (version);
+
+
+--
+-- Name: django_content_type django_content_type_app_label_model_76bd3d3b_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.django_content_type
+    ADD CONSTRAINT django_content_type_app_label_model_76bd3d3b_uniq UNIQUE (app_label, model);
+
+
+--
+-- Name: django_content_type django_content_type_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.django_content_type
+    ADD CONSTRAINT django_content_type_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: django_migrations django_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.django_migrations
+    ADD CONSTRAINT django_migrations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: django_session django_session_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.django_session
+    ADD CONSTRAINT django_session_pkey PRIMARY KEY (session_key);
+
+
+--
+-- Name: documento documento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documento
+    ADD CONSTRAINT documento_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: espacio_trabajo espacio_trabajo_nombre_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio_trabajo
+    ADD CONSTRAINT espacio_trabajo_nombre_key UNIQUE (nombre);
+
+
+--
+-- Name: espacio_trabajo espacio_trabajo_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio_trabajo
+    ADD CONSTRAINT espacio_trabajo_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: evaluacion evaluacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluacion
+    ADD CONSTRAINT evaluacion_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: nota nota_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.nota
+    ADD CONSTRAINT nota_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: participacion participacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.participacion
+    ADD CONSTRAINT participacion_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: participacion participacion_unica; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.participacion
+    ADD CONSTRAINT participacion_unica UNIQUE (siniestro_id, persona_id, rol);
+
+
+--
+-- Name: persona persona_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.persona
+    ADD CONSTRAINT persona_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: persona persona_unica_por_identificador; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.persona
+    ADD CONSTRAINT persona_unica_por_identificador UNIQUE (tipo_identificador, identificador);
+
+
+--
+-- Name: poliza poliza_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.poliza
+    ADD CONSTRAINT poliza_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: regla regla_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regla
+    ADD CONSTRAINT regla_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: regla regla_unica_por_conjunto; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regla
+    ADD CONSTRAINT regla_unica_por_conjunto UNIQUE (conjunto_id, codigo);
+
+
+--
+-- Name: senal senal_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.senal
+    ADD CONSTRAINT senal_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: siniestro siniestro_numero_expediente_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.siniestro
+    ADD CONSTRAINT siniestro_numero_expediente_key UNIQUE (numero_expediente);
+
+
+--
+-- Name: siniestro siniestro_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.siniestro
+    ADD CONSTRAINT siniestro_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: tarea_cambio tarea_cambio_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tarea_cambio
+    ADD CONSTRAINT tarea_cambio_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: tarea tarea_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tarea
+    ADD CONSTRAINT tarea_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: usuario usuario_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usuario
+    ADD CONSTRAINT usuario_email_key UNIQUE (email);
+
+
+--
+-- Name: usuario usuario_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usuario
+    ADD CONSTRAINT usuario_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auditoria_espacio_fecha_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auditoria_espacio_fecha_idx ON public.auditoria USING btree (espacio_id, fecha);
+
+
+--
+-- Name: auditoria_espacio_id_62d223f3; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auditoria_espacio_id_62d223f3 ON public.auditoria USING btree (espacio_id);
+
+
+--
+-- Name: auditoria_siniestro_origen_id_f7954c85; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auditoria_siniestro_origen_id_f7954c85 ON public.auditoria USING btree (siniestro_origen_id);
+
+
+--
+-- Name: auditoria_usuario_id_5e766294; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auditoria_usuario_id_5e766294 ON public.auditoria USING btree (usuario_id);
+
+
+--
+-- Name: auth_group_name_a6ea08ec_like; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_group_name_a6ea08ec_like ON public.auth_group USING btree (name varchar_pattern_ops);
+
+
+--
+-- Name: auth_group_permissions_group_id_b120cbf9; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_group_permissions_group_id_b120cbf9 ON public.auth_group_permissions USING btree (group_id);
+
+
+--
+-- Name: auth_group_permissions_permission_id_84c5c92e; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_group_permissions_permission_id_84c5c92e ON public.auth_group_permissions USING btree (permission_id);
+
+
+--
+-- Name: auth_permission_content_type_id_2f476e4b; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_permission_content_type_id_2f476e4b ON public.auth_permission USING btree (content_type_id);
+
+
+--
+-- Name: bien_afectado_bien_id_17388be0; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bien_afectado_bien_id_17388be0 ON public.bien_afectado USING btree (bien_id);
+
+
+--
+-- Name: bien_afectado_bien_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bien_afectado_bien_idx ON public.bien_afectado USING btree (bien_id);
+
+
+--
+-- Name: bien_afectado_siniestro_id_29e0088e; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bien_afectado_siniestro_id_29e0088e ON public.bien_afectado USING btree (siniestro_id);
+
+
+--
+-- Name: bien_afectado_siniestro_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bien_afectado_siniestro_idx ON public.bien_afectado USING btree (siniestro_id);
+
+
+--
+-- Name: bien_identificador_norm_b0bb34d4_like; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX bien_identificador_norm_b0bb34d4_like ON public.bien USING btree (identificador_norm varchar_pattern_ops);
+
+
+--
+-- Name: cierre_perito_id_9ba8ab2c; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cierre_perito_id_9ba8ab2c ON public.cierre USING btree (perito_id);
+
+
+--
+-- Name: cierre_siniestro_fecha_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cierre_siniestro_fecha_idx ON public.cierre USING btree (siniestro_id, creado_en);
+
+
+--
+-- Name: cierre_siniestro_id_26673368; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cierre_siniestro_id_26673368 ON public.cierre USING btree (siniestro_id);
+
+
+--
+-- Name: conjunto_reglas_basado_en_id_a2fa6e50; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX conjunto_reglas_basado_en_id_a2fa6e50 ON public.conjunto_reglas USING btree (basado_en_id);
+
+
+--
+-- Name: conjunto_reglas_creado_por_id_927fb8fd; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX conjunto_reglas_creado_por_id_927fb8fd ON public.conjunto_reglas USING btree (creado_por_id);
+
+
+--
+-- Name: conjunto_reglas_version_652f3f42_like; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX conjunto_reglas_version_652f3f42_like ON public.conjunto_reglas USING btree (version varchar_pattern_ops);
+
+
+--
+-- Name: django_session_expire_date_a5c62663; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX django_session_expire_date_a5c62663 ON public.django_session USING btree (expire_date);
+
+
+--
+-- Name: django_session_session_key_c0390e0f_like; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX django_session_session_key_c0390e0f_like ON public.django_session USING btree (session_key varchar_pattern_ops);
+
+
+--
+-- Name: documento_siniestro_id_b3799bf7; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX documento_siniestro_id_b3799bf7 ON public.documento USING btree (siniestro_id);
+
+
+--
+-- Name: documento_subido_por_id_9a30e302; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX documento_subido_por_id_9a30e302 ON public.documento USING btree (subido_por_id);
+
+
+--
+-- Name: espacio_trabajo_nombre_1321ae23_like; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX espacio_trabajo_nombre_1321ae23_like ON public.espacio_trabajo USING btree (nombre varchar_pattern_ops);
+
+
+--
+-- Name: evaluacion_conjunto_id_7c4ae9cf; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX evaluacion_conjunto_id_7c4ae9cf ON public.evaluacion USING btree (conjunto_id);
+
+
+--
+-- Name: evaluacion_siniestro_fecha_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX evaluacion_siniestro_fecha_idx ON public.evaluacion USING btree (siniestro_id, creada_en);
+
+
+--
+-- Name: evaluacion_siniestro_id_fbfc8416; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX evaluacion_siniestro_id_fbfc8416 ON public.evaluacion USING btree (siniestro_id);
+
+
+--
+-- Name: nota_autor_id_6b15c129; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX nota_autor_id_6b15c129 ON public.nota USING btree (autor_id);
+
+
+--
+-- Name: nota_siniestro_id_4eba4403; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX nota_siniestro_id_4eba4403 ON public.nota USING btree (siniestro_id);
+
+
+--
+-- Name: participacion_persona_id_fb8eb57e; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX participacion_persona_id_fb8eb57e ON public.participacion USING btree (persona_id);
+
+
+--
+-- Name: participacion_persona_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX participacion_persona_idx ON public.participacion USING btree (persona_id);
+
+
+--
+-- Name: participacion_siniestro_id_d72f6f09; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX participacion_siniestro_id_d72f6f09 ON public.participacion USING btree (siniestro_id);
+
+
+--
+-- Name: participacion_siniestro_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX participacion_siniestro_idx ON public.participacion USING btree (siniestro_id);
+
+
+--
+-- Name: regla_conjunto_id_e84ef696; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX regla_conjunto_id_e84ef696 ON public.regla USING btree (conjunto_id);
+
+
+--
+-- Name: senal_evaluacion_id_092a0743; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX senal_evaluacion_id_092a0743 ON public.senal USING btree (evaluacion_id);
+
+
+--
+-- Name: senal_regla_id_8fd8fd7a; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX senal_regla_id_8fd8fd7a ON public.senal USING btree (regla_id);
+
+
+--
+-- Name: siniestro_espacio_id_fc2ecc71; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX siniestro_espacio_id_fc2ecc71 ON public.siniestro USING btree (espacio_id);
+
+
+--
+-- Name: siniestro_estado_confirmado; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX siniestro_estado_confirmado ON public.siniestro USING btree (estado, confirmado_en);
+
+
+--
+-- Name: siniestro_numero_expediente_79a5e8c5_like; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX siniestro_numero_expediente_79a5e8c5_like ON public.siniestro USING btree (numero_expediente varchar_pattern_ops);
+
+
+--
+-- Name: siniestro_perito_id_ebfa25ba; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX siniestro_perito_id_ebfa25ba ON public.siniestro USING btree (perito_id);
+
+
+--
+-- Name: siniestro_poliza_id_00ea36fd; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX siniestro_poliza_id_00ea36fd ON public.siniestro USING btree (poliza_id);
+
+
+--
+-- Name: tarea_cambio_tarea_id_2050d9b1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX tarea_cambio_tarea_id_2050d9b1 ON public.tarea_cambio USING btree (tarea_id);
+
+
+--
+-- Name: tarea_cambio_usuario_id_1e96b04e; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX tarea_cambio_usuario_id_1e96b04e ON public.tarea_cambio USING btree (usuario_id);
+
+
+--
+-- Name: tarea_siniestro_id_0104c280; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX tarea_siniestro_id_0104c280 ON public.tarea USING btree (siniestro_id);
+
+
+--
+-- Name: un_solo_conjunto_activo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX un_solo_conjunto_activo ON public.conjunto_reglas USING btree (activo) WHERE activo;
+
+
+--
+-- Name: usuario_email_de9343f9_like; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX usuario_email_de9343f9_like ON public.usuario USING btree (email varchar_pattern_ops);
+
+
+--
+-- Name: usuario_espacio_id_988f23d9; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX usuario_espacio_id_988f23d9 ON public.usuario USING btree (espacio_id);
+
+
+--
+-- Name: auditoria auditoria_sin_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER auditoria_sin_truncate BEFORE TRUNCATE ON public.auditoria FOR EACH STATEMENT EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: auditoria auditoria_solo_altas; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER auditoria_solo_altas BEFORE DELETE OR UPDATE ON public.auditoria FOR EACH ROW EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: cierre cierre_sin_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER cierre_sin_truncate BEFORE TRUNCATE ON public.cierre FOR EACH STATEMENT EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: cierre cierre_solo_altas; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER cierre_solo_altas BEFORE DELETE OR UPDATE ON public.cierre FOR EACH ROW EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: conjunto_reglas conjunto_reglas_sin_borrado; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER conjunto_reglas_sin_borrado BEFORE DELETE ON public.conjunto_reglas FOR EACH ROW EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: conjunto_reglas conjunto_reglas_solo_activo; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER conjunto_reglas_solo_activo BEFORE UPDATE ON public.conjunto_reglas FOR EACH ROW EXECUTE FUNCTION public.sigs_conjunto_solo_activo();
+
+
+--
+-- Name: evaluacion evaluacion_sin_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER evaluacion_sin_truncate BEFORE TRUNCATE ON public.evaluacion FOR EACH STATEMENT EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: evaluacion evaluacion_solo_altas; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER evaluacion_solo_altas BEFORE DELETE OR UPDATE ON public.evaluacion FOR EACH ROW EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: regla regla_inmutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER regla_inmutable BEFORE DELETE OR UPDATE ON public.regla FOR EACH ROW EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: senal senal_sin_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER senal_sin_truncate BEFORE TRUNCATE ON public.senal FOR EACH STATEMENT EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: senal senal_solo_altas; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER senal_solo_altas BEFORE DELETE OR UPDATE ON public.senal FOR EACH ROW EXECUTE FUNCTION public.sigs_bloquear_modificacion();
+
+
+--
+-- Name: auditoria auditoria_espacio_id_62d223f3_fk_espacio_trabajo_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auditoria
+    ADD CONSTRAINT auditoria_espacio_id_62d223f3_fk_espacio_trabajo_id FOREIGN KEY (espacio_id) REFERENCES public.espacio_trabajo(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auditoria auditoria_siniestro_origen_id_f7954c85_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auditoria
+    ADD CONSTRAINT auditoria_siniestro_origen_id_f7954c85_fk_siniestro_id FOREIGN KEY (siniestro_origen_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auditoria auditoria_usuario_id_5e766294_fk_usuario_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auditoria
+    ADD CONSTRAINT auditoria_usuario_id_5e766294_fk_usuario_id FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_group_permissions auth_group_permissio_permission_id_84c5c92e_fk_auth_perm; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_group_permissions
+    ADD CONSTRAINT auth_group_permissio_permission_id_84c5c92e_fk_auth_perm FOREIGN KEY (permission_id) REFERENCES public.auth_permission(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_group_permissions auth_group_permissions_group_id_b120cbf9_fk_auth_group_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_group_permissions
+    ADD CONSTRAINT auth_group_permissions_group_id_b120cbf9_fk_auth_group_id FOREIGN KEY (group_id) REFERENCES public.auth_group(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_permission auth_permission_content_type_id_2f476e4b_fk_django_co; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_permission
+    ADD CONSTRAINT auth_permission_content_type_id_2f476e4b_fk_django_co FOREIGN KEY (content_type_id) REFERENCES public.django_content_type(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: bien_afectado bien_afectado_bien_id_17388be0_fk_bien_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bien_afectado
+    ADD CONSTRAINT bien_afectado_bien_id_17388be0_fk_bien_id FOREIGN KEY (bien_id) REFERENCES public.bien(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: bien_afectado bien_afectado_siniestro_id_29e0088e_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bien_afectado
+    ADD CONSTRAINT bien_afectado_siniestro_id_29e0088e_fk_siniestro_id FOREIGN KEY (siniestro_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: cierre cierre_perito_id_9ba8ab2c_fk_usuario_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cierre
+    ADD CONSTRAINT cierre_perito_id_9ba8ab2c_fk_usuario_id FOREIGN KEY (perito_id) REFERENCES public.usuario(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: cierre cierre_siniestro_id_26673368_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cierre
+    ADD CONSTRAINT cierre_siniestro_id_26673368_fk_siniestro_id FOREIGN KEY (siniestro_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: conjunto_reglas conjunto_reglas_basado_en_id_a2fa6e50_fk_conjunto_reglas_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conjunto_reglas
+    ADD CONSTRAINT conjunto_reglas_basado_en_id_a2fa6e50_fk_conjunto_reglas_id FOREIGN KEY (basado_en_id) REFERENCES public.conjunto_reglas(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: conjunto_reglas conjunto_reglas_creado_por_id_927fb8fd_fk_usuario_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conjunto_reglas
+    ADD CONSTRAINT conjunto_reglas_creado_por_id_927fb8fd_fk_usuario_id FOREIGN KEY (creado_por_id) REFERENCES public.usuario(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: documento documento_siniestro_id_b3799bf7_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documento
+    ADD CONSTRAINT documento_siniestro_id_b3799bf7_fk_siniestro_id FOREIGN KEY (siniestro_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: documento documento_subido_por_id_9a30e302_fk_usuario_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documento
+    ADD CONSTRAINT documento_subido_por_id_9a30e302_fk_usuario_id FOREIGN KEY (subido_por_id) REFERENCES public.usuario(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: evaluacion evaluacion_conjunto_id_7c4ae9cf_fk_conjunto_reglas_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluacion
+    ADD CONSTRAINT evaluacion_conjunto_id_7c4ae9cf_fk_conjunto_reglas_id FOREIGN KEY (conjunto_id) REFERENCES public.conjunto_reglas(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: evaluacion evaluacion_siniestro_id_fbfc8416_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluacion
+    ADD CONSTRAINT evaluacion_siniestro_id_fbfc8416_fk_siniestro_id FOREIGN KEY (siniestro_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: nota nota_autor_id_6b15c129_fk_usuario_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.nota
+    ADD CONSTRAINT nota_autor_id_6b15c129_fk_usuario_id FOREIGN KEY (autor_id) REFERENCES public.usuario(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: nota nota_siniestro_id_4eba4403_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.nota
+    ADD CONSTRAINT nota_siniestro_id_4eba4403_fk_siniestro_id FOREIGN KEY (siniestro_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: participacion participacion_persona_id_fb8eb57e_fk_persona_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.participacion
+    ADD CONSTRAINT participacion_persona_id_fb8eb57e_fk_persona_id FOREIGN KEY (persona_id) REFERENCES public.persona(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: participacion participacion_siniestro_id_d72f6f09_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.participacion
+    ADD CONSTRAINT participacion_siniestro_id_d72f6f09_fk_siniestro_id FOREIGN KEY (siniestro_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: regla regla_conjunto_id_e84ef696_fk_conjunto_reglas_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.regla
+    ADD CONSTRAINT regla_conjunto_id_e84ef696_fk_conjunto_reglas_id FOREIGN KEY (conjunto_id) REFERENCES public.conjunto_reglas(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: senal senal_evaluacion_id_092a0743_fk_evaluacion_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.senal
+    ADD CONSTRAINT senal_evaluacion_id_092a0743_fk_evaluacion_id FOREIGN KEY (evaluacion_id) REFERENCES public.evaluacion(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: senal senal_regla_id_8fd8fd7a_fk_regla_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.senal
+    ADD CONSTRAINT senal_regla_id_8fd8fd7a_fk_regla_id FOREIGN KEY (regla_id) REFERENCES public.regla(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: siniestro siniestro_espacio_id_fc2ecc71_fk_espacio_trabajo_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.siniestro
+    ADD CONSTRAINT siniestro_espacio_id_fc2ecc71_fk_espacio_trabajo_id FOREIGN KEY (espacio_id) REFERENCES public.espacio_trabajo(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: siniestro siniestro_perito_id_ebfa25ba_fk_usuario_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.siniestro
+    ADD CONSTRAINT siniestro_perito_id_ebfa25ba_fk_usuario_id FOREIGN KEY (perito_id) REFERENCES public.usuario(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: siniestro siniestro_poliza_id_00ea36fd_fk_poliza_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.siniestro
+    ADD CONSTRAINT siniestro_poliza_id_00ea36fd_fk_poliza_id FOREIGN KEY (poliza_id) REFERENCES public.poliza(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: tarea_cambio tarea_cambio_tarea_id_2050d9b1_fk_tarea_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tarea_cambio
+    ADD CONSTRAINT tarea_cambio_tarea_id_2050d9b1_fk_tarea_id FOREIGN KEY (tarea_id) REFERENCES public.tarea(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: tarea_cambio tarea_cambio_usuario_id_1e96b04e_fk_usuario_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tarea_cambio
+    ADD CONSTRAINT tarea_cambio_usuario_id_1e96b04e_fk_usuario_id FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: tarea tarea_siniestro_id_0104c280_fk_siniestro_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tarea
+    ADD CONSTRAINT tarea_siniestro_id_0104c280_fk_siniestro_id FOREIGN KEY (siniestro_id) REFERENCES public.siniestro(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: usuario usuario_espacio_id_988f23d9_fk_espacio_trabajo_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usuario
+    ADD CONSTRAINT usuario_espacio_id_988f23d9_fk_espacio_trabajo_id FOREIGN KEY (espacio_id) REFERENCES public.espacio_trabajo(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: SCHEMA public; Type: ACL; Schema: -; Owner: -
+--
+
+GRANT USAGE ON SCHEMA public TO sigs_app;
+
+
+--
+-- Name: TABLE auditoria; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.auditoria TO sigs_app;
+
+
+--
+-- Name: SEQUENCE auditoria_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.auditoria_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE auth_group; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.auth_group TO sigs_app;
+
+
+--
+-- Name: SEQUENCE auth_group_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.auth_group_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE auth_group_permissions; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.auth_group_permissions TO sigs_app;
+
+
+--
+-- Name: SEQUENCE auth_group_permissions_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.auth_group_permissions_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE auth_permission; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.auth_permission TO sigs_app;
+
+
+--
+-- Name: SEQUENCE auth_permission_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.auth_permission_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE bien; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bien TO sigs_app;
+
+
+--
+-- Name: TABLE bien_afectado; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bien_afectado TO sigs_app;
+
+
+--
+-- Name: SEQUENCE bien_afectado_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.bien_afectado_id_seq TO sigs_app;
+
+
+--
+-- Name: SEQUENCE bien_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.bien_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE cierre; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.cierre TO sigs_app;
+
+
+--
+-- Name: SEQUENCE cierre_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.cierre_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE conjunto_reglas; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.conjunto_reglas TO sigs_app;
+
+
+--
+-- Name: SEQUENCE conjunto_reglas_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.conjunto_reglas_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE django_content_type; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.django_content_type TO sigs_app;
+
+
+--
+-- Name: SEQUENCE django_content_type_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.django_content_type_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE django_migrations; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.django_migrations TO sigs_app;
+
+
+--
+-- Name: SEQUENCE django_migrations_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.django_migrations_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE django_session; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.django_session TO sigs_app;
+
+
+--
+-- Name: TABLE documento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.documento TO sigs_app;
+
+
+--
+-- Name: SEQUENCE documento_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.documento_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE espacio_trabajo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_trabajo TO sigs_app;
+
+
+--
+-- Name: SEQUENCE espacio_trabajo_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.espacio_trabajo_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE evaluacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.evaluacion TO sigs_app;
+
+
+--
+-- Name: SEQUENCE evaluacion_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.evaluacion_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE nota; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.nota TO sigs_app;
+
+
+--
+-- Name: SEQUENCE nota_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.nota_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE participacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.participacion TO sigs_app;
+
+
+--
+-- Name: SEQUENCE participacion_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.participacion_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE persona; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.persona TO sigs_app;
+
+
+--
+-- Name: SEQUENCE persona_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.persona_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE poliza; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.poliza TO sigs_app;
+
+
+--
+-- Name: SEQUENCE poliza_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.poliza_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE regla; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.regla TO sigs_app;
+
+
+--
+-- Name: SEQUENCE regla_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.regla_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE senal; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.senal TO sigs_app;
+
+
+--
+-- Name: SEQUENCE senal_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.senal_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE siniestro; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.siniestro TO sigs_app;
+
+
+--
+-- Name: SEQUENCE siniestro_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.siniestro_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE tarea; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tarea TO sigs_app;
+
+
+--
+-- Name: TABLE tarea_cambio; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tarea_cambio TO sigs_app;
+
+
+--
+-- Name: SEQUENCE tarea_cambio_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.tarea_cambio_id_seq TO sigs_app;
+
+
+--
+-- Name: SEQUENCE tarea_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.tarea_id_seq TO sigs_app;
+
+
+--
+-- Name: TABLE usuario; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.usuario TO sigs_app;
+
+
+--
+-- Name: SEQUENCE usuario_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.usuario_id_seq TO sigs_app;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE sigs_owner IN SCHEMA public GRANT SELECT,USAGE ON SEQUENCES TO sigs_app;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE sigs_owner IN SCHEMA public GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO sigs_app;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+
+
+-- Datos de arranque: reglas RS-1.0, migraciones aplicadas y tablas internas de Django
+
+--
+-- PostgreSQL database dump
+--
+
+
+-- Dumped from database version 16.15
+-- Dumped by pg_dump version 16.15
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Data for Name: django_content_type; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (1, 'contenttypes', 'contenttype');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (2, 'auth', 'permission');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (3, 'auth', 'group');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (4, 'sessions', 'session');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (5, 'nucleo', 'usuario');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (6, 'nucleo', 'bien');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (7, 'nucleo', 'espaciotrabajo');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (8, 'nucleo', 'poliza');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (9, 'nucleo', 'conjuntoreglas');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (10, 'nucleo', 'evaluacion');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (11, 'nucleo', 'persona');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (12, 'nucleo', 'regla');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (13, 'nucleo', 'senal');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (14, 'nucleo', 'siniestro');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (15, 'nucleo', 'participacion');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (16, 'nucleo', 'nota');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (17, 'nucleo', 'documento');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (18, 'nucleo', 'cierre');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (19, 'nucleo', 'bienafectado');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (20, 'nucleo', 'auditoria');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (21, 'nucleo', 'tarea');
+INSERT INTO public.django_content_type (id, app_label, model) VALUES (22, 'nucleo', 'tareacambio');
+
+
+--
+-- Data for Name: auth_permission; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (1, 'Can add content type', 1, 'add_contenttype');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (2, 'Can change content type', 1, 'change_contenttype');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (3, 'Can delete content type', 1, 'delete_contenttype');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (4, 'Can view content type', 1, 'view_contenttype');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (5, 'Can add permission', 2, 'add_permission');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (6, 'Can change permission', 2, 'change_permission');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (7, 'Can delete permission', 2, 'delete_permission');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (8, 'Can view permission', 2, 'view_permission');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (9, 'Can add group', 3, 'add_group');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (10, 'Can change group', 3, 'change_group');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (11, 'Can delete group', 3, 'delete_group');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (12, 'Can view group', 3, 'view_group');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (13, 'Can add session', 4, 'add_session');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (14, 'Can change session', 4, 'change_session');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (15, 'Can delete session', 4, 'delete_session');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (16, 'Can view session', 4, 'view_session');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (17, 'Can add usuario', 5, 'add_usuario');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (18, 'Can change usuario', 5, 'change_usuario');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (19, 'Can delete usuario', 5, 'delete_usuario');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (20, 'Can view usuario', 5, 'view_usuario');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (21, 'Can add bien', 6, 'add_bien');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (22, 'Can change bien', 6, 'change_bien');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (23, 'Can delete bien', 6, 'delete_bien');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (24, 'Can view bien', 6, 'view_bien');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (25, 'Can add espacio trabajo', 7, 'add_espaciotrabajo');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (26, 'Can change espacio trabajo', 7, 'change_espaciotrabajo');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (27, 'Can delete espacio trabajo', 7, 'delete_espaciotrabajo');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (28, 'Can view espacio trabajo', 7, 'view_espaciotrabajo');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (29, 'Can add poliza', 8, 'add_poliza');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (30, 'Can change poliza', 8, 'change_poliza');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (31, 'Can delete poliza', 8, 'delete_poliza');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (32, 'Can view poliza', 8, 'view_poliza');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (33, 'Can add conjunto reglas', 9, 'add_conjuntoreglas');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (34, 'Can change conjunto reglas', 9, 'change_conjuntoreglas');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (35, 'Can delete conjunto reglas', 9, 'delete_conjuntoreglas');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (36, 'Can view conjunto reglas', 9, 'view_conjuntoreglas');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (37, 'Can add evaluacion', 10, 'add_evaluacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (38, 'Can change evaluacion', 10, 'change_evaluacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (39, 'Can delete evaluacion', 10, 'delete_evaluacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (40, 'Can view evaluacion', 10, 'view_evaluacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (41, 'Can add persona', 11, 'add_persona');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (42, 'Can change persona', 11, 'change_persona');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (43, 'Can delete persona', 11, 'delete_persona');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (44, 'Can view persona', 11, 'view_persona');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (45, 'Can add regla', 12, 'add_regla');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (46, 'Can change regla', 12, 'change_regla');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (47, 'Can delete regla', 12, 'delete_regla');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (48, 'Can view regla', 12, 'view_regla');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (49, 'Can add senal', 13, 'add_senal');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (50, 'Can change senal', 13, 'change_senal');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (51, 'Can delete senal', 13, 'delete_senal');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (52, 'Can view senal', 13, 'view_senal');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (53, 'Can add siniestro', 14, 'add_siniestro');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (54, 'Can change siniestro', 14, 'change_siniestro');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (55, 'Can delete siniestro', 14, 'delete_siniestro');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (56, 'Can view siniestro', 14, 'view_siniestro');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (57, 'Can add participacion', 15, 'add_participacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (58, 'Can change participacion', 15, 'change_participacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (59, 'Can delete participacion', 15, 'delete_participacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (60, 'Can view participacion', 15, 'view_participacion');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (61, 'Can add nota', 16, 'add_nota');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (62, 'Can change nota', 16, 'change_nota');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (63, 'Can delete nota', 16, 'delete_nota');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (64, 'Can view nota', 16, 'view_nota');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (65, 'Can add documento', 17, 'add_documento');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (66, 'Can change documento', 17, 'change_documento');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (67, 'Can delete documento', 17, 'delete_documento');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (68, 'Can view documento', 17, 'view_documento');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (69, 'Can add cierre', 18, 'add_cierre');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (70, 'Can change cierre', 18, 'change_cierre');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (71, 'Can delete cierre', 18, 'delete_cierre');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (72, 'Can view cierre', 18, 'view_cierre');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (73, 'Can add bien afectado', 19, 'add_bienafectado');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (74, 'Can change bien afectado', 19, 'change_bienafectado');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (75, 'Can delete bien afectado', 19, 'delete_bienafectado');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (76, 'Can view bien afectado', 19, 'view_bienafectado');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (77, 'Can add auditoria', 20, 'add_auditoria');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (78, 'Can change auditoria', 20, 'change_auditoria');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (79, 'Can delete auditoria', 20, 'delete_auditoria');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (80, 'Can view auditoria', 20, 'view_auditoria');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (81, 'Can add tarea', 21, 'add_tarea');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (82, 'Can change tarea', 21, 'change_tarea');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (83, 'Can delete tarea', 21, 'delete_tarea');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (84, 'Can view tarea', 21, 'view_tarea');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (85, 'Can add tarea cambio', 22, 'add_tareacambio');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (86, 'Can change tarea cambio', 22, 'change_tareacambio');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (87, 'Can delete tarea cambio', 22, 'delete_tareacambio');
+INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES (88, 'Can view tarea cambio', 22, 'view_tareacambio');
+
+
+--
+-- Data for Name: conjunto_reglas; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.conjunto_reglas (id, version, vigente_desde, topes, activo, creado_en, basado_en_id, creado_por_id) VALUES (1, 'RS-1.0', '2026-10-01', '{"total": 100, "grupos": {"Bien": 25, "Persona": 35, "Denuncia": 10, "Cobertura": 30, "Antecedente": 30}, "prioridad": {"alta": 50, "media": 25}}', true, '2026-11-09 02:26:22.068495+00', NULL, NULL);
+
+
+--
+-- Data for Name: django_migrations; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (1, 'contenttypes', '0001_initial', '2026-11-09 02:26:21.897248+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (2, 'contenttypes', '0002_remove_content_type_name', '2026-11-09 02:26:21.899021+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (3, 'auth', '0001_initial', '2026-11-09 02:26:21.911377+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (4, 'auth', '0002_alter_permission_name_max_length', '2026-11-09 02:26:21.912661+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (5, 'auth', '0003_alter_user_email_max_length', '2026-11-09 02:26:21.913859+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (6, 'auth', '0004_alter_user_username_opts', '2026-11-09 02:26:21.915004+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (7, 'auth', '0005_alter_user_last_login_null', '2026-11-09 02:26:21.916233+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (8, 'auth', '0006_require_contenttypes_0002', '2026-11-09 02:26:21.916579+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (9, 'auth', '0007_alter_validators_add_error_messages', '2026-11-09 02:26:21.917685+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (10, 'auth', '0008_alter_user_username_max_length', '2026-11-09 02:26:21.918787+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (11, 'auth', '0009_alter_user_last_name_max_length', '2026-11-09 02:26:21.919839+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (12, 'auth', '0010_alter_group_name_max_length', '2026-11-09 02:26:21.921571+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (13, 'auth', '0011_update_proxy_permissions', '2026-11-09 02:26:21.922821+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (14, 'auth', '0012_alter_user_first_name_max_length', '2026-11-09 02:26:21.924615+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (15, 'nucleo', '0001_initial', '2026-11-09 02:26:22.062659+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (16, 'nucleo', '0002_triggers_solo_altas', '2026-11-09 02:26:22.064251+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (17, 'nucleo', '0003_reglas_rs_1_0', '2026-11-09 02:26:22.070285+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (18, 'nucleo', '0004_permisos_rol_aplicacion', '2026-11-09 02:26:22.078967+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (19, 'nucleo', '0005_datos_por_caso', '2026-11-09 02:26:22.094261+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (20, 'nucleo', '0006_reglas_inmutables', '2026-11-09 02:26:22.095201+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (21, 'nucleo', '0007_motivos_y_respaldo_del_cierre', '2026-11-09 02:26:22.105619+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (22, 'nucleo', '0008_datos_de_la_denuncia', '2026-11-09 02:26:22.134421+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (23, 'sessions', '0001_initial', '2026-11-09 02:26:22.139003+00');
+
+
+--
+-- Data for Name: regla; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (1, 'R01', 'Cobertura reciente', 'Cobertura', '{"niveles": [{"puntos": 25, "max_dias": 30}, {"puntos": 12, "max_dias": 60}]}', 25, 1);
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (2, 'R02', 'Pago reciente', 'Cobertura', '{"puntos": 20, "max_dias": 15, "min_dias": 0}', 20, 1);
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (3, 'R03', 'Persona recurrente', 'Persona', '{"niveles": [{"puntos": 20, "min_antecedentes": 2}, {"puntos": 8, "min_antecedentes": 1}], "ventana_meses": 12}', 20, 1);
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (4, 'R04', 'Siniestros cercanos', 'Persona', '{"puntos": 15, "max_dias": 90}', 15, 1);
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (5, 'R05', 'Rol cruzado', 'Persona', '{"puntos": 15, "ventana_meses": 24}', 15, 1);
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (6, 'R06', 'Bien repetido', 'Bien', '{"puntos": 25, "ventana_meses": 24}', 25, 1);
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (7, 'R07', 'Vínculo con irregularidad confirmada', 'Antecedente', '{"puntos": 30}', 30, 1);
+INSERT INTO public.regla (id, codigo, nombre, grupo, parametros, puntos_max, conjunto_id) VALUES (8, 'R08', 'Denuncia tardía', 'Denuncia', '{"puntos": 10, "plazo_dias": 3}', 10, 1);
+
+
+--
+-- Name: auth_permission_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.auth_permission_id_seq', 88, true);
+
+
+--
+-- Name: conjunto_reglas_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.conjunto_reglas_id_seq', 1, true);
+
+
+--
+-- Name: django_content_type_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.django_content_type_id_seq', 22, true);
+
+
+--
+-- Name: django_migrations_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.django_migrations_id_seq', 23, true);
+
+
+--
+-- Name: regla_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.regla_id_seq', 8, true);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+
+
+RESET ROLE;
+\echo 'Base creada. Cargá los datos de prueba con db/sql/02_cargar_datos_demo.sql.'
+\endif

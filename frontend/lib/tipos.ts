@@ -143,6 +143,12 @@ export interface Siniestro {
   tipo: string;
   fecha_hecho: string;
   fecha_denuncia: string | null;
+  /** HH:MM:SS o null. */
+  hora_denuncia: string | null;
+  numero_denuncia: string;
+  asesor: string;
+  intervenciones: string;
+  documentacion_adjunta: string;
   lugar: string;
   relato: string;
   estado: EstadoSiniestro;
@@ -165,6 +171,12 @@ export interface CuerpoSiniestro {
   /** Se omite cuando está vacía para que la API responda que es obligatoria. */
   fecha_hecho?: string;
   fecha_denuncia: string | null;
+  /** HH:MM; vacío o null borra la hora. */
+  hora_denuncia: string | null;
+  numero_denuncia: string;
+  asesor: string;
+  intervenciones: string;
+  documentacion_adjunta: string;
   lugar: string;
   relato: string;
   personas: PersonaSiniestro[];

@@ -64,7 +64,7 @@ Todos usan la contraseña **`Demo.Sigs#2026`**.
 ## Recorrido sugerido
 
 1. **Ingresar como perito.** Abrí <http://localhost> y entrá con `perito08@sigs.test`. El panel **Mis expedientes** muestra los casos ordenados por prioridad.
-2. **Abrir EXP-2026-0147 (Incendio total del vehículo).** En la pestaña **Datos** están la póliza (cobertura «Terceros completo con incendio total»), el relato, las personas y el vehículo AB123CD (sedán modelo 2015, motor MTR-55821, chasis CHS-90311), como en el Anexo 1 del Entregable 4. Cada perito ve **solo sus propios expedientes**: si ingresás con `perito11@sigs.test` (mismo espacio) y pedís ese expediente por la API, responde 404 y queda como rechazo en la auditoría.
+2. **Abrir EXP-2026-0147 (Incendio total del vehículo).** En la pestaña **Datos** están la póliza (cobertura «Terceros completo con incendio total»), el relato, las personas y el vehículo AB123CD (sedán modelo 2015, motor MTR-55821, chasis CHS-90311), como en el Anexo 1 del Entregable 4, junto con el número de denuncia (DEN-2026-0147), la hora de la denuncia (10:20), el asesor (Código PA-031), las intervenciones (bomberos y policía) y la documentación adjunta. Cada perito ve **solo sus propios expedientes**: si ingresás con `perito11@sigs.test` (mismo espacio) y pedís ese expediente por la API, responde 404 y queda como rechazo en la auditoría.
 3. **Ver el análisis.** En la pestaña **Análisis** el indicador da **55 / 100, prioridad alta**:
    - R01 Cobertura reciente: 25 (el hecho ocurrió 23 días después del inicio de vigencia).
    - R02 Pago reciente: 20 (el primer pago fue 8 días antes del hecho). La cobertura queda en 30 por el tope.
@@ -102,6 +102,7 @@ Las pruebas cubren:
 
 - **Reglas:** los 30 escenarios con su resultado exacto (reglas activadas, puntos, topes, total y prioridad), la reproducibilidad (mismas entradas y misma versión dan el mismo resultado) y el versionado.
 - **Acceso:** 8 pruebas × 3 solicitudes directas a la API = 24 rechazos. Cada uno responde 403 o 404 sin filtrar datos y queda en la auditoría con `resultado = rechazado`. Solo el perito asignado accede a un expediente: otro perito, incluso del mismo espacio, recibe 404.
+- **Bienes identificables:** solo los vehículos y las motos se cruzan con otros casos por su patente; un teléfono, una computadora u otro bien se registra en el caso pero nunca cruza.
 - **Reglas del Entregable 4:** antecedentes solo anteriores al hecho, R03 por persona, recálculo automático, respaldo de la irregularidad, conclusión obligatoria y hecho dentro de la vigencia.
 - **Funcionales (F1 a F4) y seguridad:** bloqueo al 5.º intento con correo, mensaje genérico, enlace de 1 hora y de un solo uso, baja, y auditoría inmodificable incluso con SQL directo del usuario de la aplicación.
 - Al menos un criterio de aceptación de cada historia de usuario (HU-01 a HU-17).
@@ -110,6 +111,49 @@ Las pruebas cubren:
 
 En los escenarios R04 activa, R04 no activa, R04 límite y R05 activa, la regla R03 (persona recurrente) se activa siempre. Pasa por su propia definición: un antecedente de la misma persona dentro de los 90 días, o de los 10 meses, también está dentro de los 12 meses. Por eso esos escenarios documentan R03 como esperada, y el total esperado es de **36 activaciones** (16 por regla + 20 combinadas), con 0 falsos positivos y 0 falsos negativos.
 
+## Base de datos por SQL
+
+Además del arranque normal (la aplicación migra y carga la demo sola), la base se puede armar con dos scripts SQL de `db/sql/`. Sirven para **ver el esquema completo en un solo archivo**, **crear la base en un PostgreSQL propio** (sin Django) o **probar la aplicación con datos cargados desde SQL**:
+
+| Archivo | Qué hace |
+|---|---|
+| `db/sql/01_crear_base.sql` | Crea los roles `sigs_owner` y `sigs_app` (si no existen), la base, todas las tablas, restricciones, índices, funciones, triggers de solo altas y permisos, las reglas RS-1.0 y las filas de `django_migrations` (Django ve la base como migrada). |
+| `db/sql/02_cargar_datos_demo.sql` | Solo datos: usuarios, espacios, los casos de la demo (EXP-2026-0147 = 55, alta) y los 30 escenarios, con las secuencias ajustadas. Todos los usuarios usan la contraseña ficticia `Demo.Sigs#2026`. |
+| `db/sql/documentos/` | Los archivos de los documentos de la demo, que `cargar_sql.sh` copia al volumen `documentos`. |
+| `db/sql/compose.sin-seeds.yml` | Archivo extra de Compose: arranca la aplicación sin que corran `seed_demo` ni `seed_escenarios`. |
+
+Los scripts **no se escriben a mano**: salen de una base real, migrada y sembrada con el mismo código de la aplicación, así que no se desfasan.
+
+**Cargarlos en el contenedor `db` y probar la aplicación con esos datos:**
+
+```bash
+docker compose down -v                      # empezar de cero
+docker compose up -d --wait db              # solo la base
+./scripts/cargar_sql.sh                     # 01 y 02, y copia los documentos de la demo
+docker compose -f docker-compose.yml -f db/sql/compose.sin-seeds.yml up -d --build   # la aplicación, sin seeds
+```
+
+Después, <http://localhost> funciona igual que con el arranque normal: `perito08@sigs.test` / `Demo.Sigs#2026`. Para cargarlos en una base nueva con otro nombre, sin tocar la actual: `./scripts/cargar_sql.sh sigs_prueba` y, para usarla, `DB_NAME=sigs_prueba docker compose -f docker-compose.yml -f db/sql/compose.sin-seeds.yml up -d --build`. Si la base ya tiene el esquema o los usuarios, los scripts lo avisan y no cargan nada (se pueden correr más de una vez).
+
+**Cargarlos a mano con `psql`** (como superusuario de PostgreSQL; el nombre de la base se cambia con `-v base=...`):
+
+```bash
+psql -U postgres -f db/sql/01_crear_base.sql
+psql -U postgres -f db/sql/02_cargar_datos_demo.sql
+```
+
+**Regenerarlos** cuando cambie una migración o los datos de demo (levanta una base descartable en un proyecto de Compose aparte, `sigs_generar`, que borra al terminar; no toca tu base):
+
+```bash
+./scripts/generar_sql.sh
+```
+
+La prueba `backend/tests/test_s25_scripts_sql.py` compara los scripts con la base migrada y falla si se desfasan. Dentro del contenedor la carpeta `db/` no está, así que se corre montándola:
+
+```bash
+docker compose run --rm -v "$PWD/db:/db:ro" backend pytest tests/test_s25_scripts_sql.py
+```
+
 ## Estructura
 
 ```
@@ -117,8 +161,9 @@ backend/    Django 5 + Django REST Framework (API, permisos, auditoría y motor 
 frontend/   Next.js (App Router) + TypeScript
 nginx/      Proxy inverso: / → frontend, /api → backend
 db/init/    Crea los roles de PostgreSQL (dueño y aplicación, ninguno superusuario)
+db/sql/     Scripts SQL de creación de la base y de carga de los datos de demo (ver «Base de datos por SQL»)
 docs/       Especificación del prototipo, decisiones de diseño y maquetas de referencia
-scripts/    empaquetar.sh: genera el zip limpio para Drive
+scripts/    empaquetar.sh (zip limpio para Drive), generar_sql.sh y cargar_sql.sh (scripts SQL de la base)
 ```
 
 Arquitectura: `docs/referencias/arquitectura.png`. En local se usa HTTP. Las cookies seguras se activan con `SECURE_COOKIES=true` para producción.

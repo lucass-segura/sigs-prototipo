@@ -1,6 +1,6 @@
 # SIGS · Diccionario de datos de la base final
 
-Describe la base de datos PostgreSQL 16 tal como queda después de aplicar las migraciones `0001` a `0007` (consulta hecha sobre `information_schema`, `pg_constraint`, `pg_indexes` y `pg_trigger` de una base migrada). Sirve para actualizar el diccionario del Entregable 4 (líneas 1477 a 1670, tablas 37 a 42). Todo en español; los datos de la demo son ficticios.
+Describe la base de datos PostgreSQL 16 tal como queda después de aplicar las migraciones `0001` a `0008` (consulta hecha sobre `information_schema`, `pg_constraint`, `pg_indexes` y `pg_trigger` de una base migrada). Sirve para actualizar el diccionario del Entregable 4 (líneas 1477 a 1670, tablas 37 a 42). Todo en español; los datos de la demo son ficticios.
 
 Convenciones:
 
@@ -91,8 +91,8 @@ Se crea una por siniestro.
 | Columna | Tipo | Nulo | Restricciones | Significado |
 |---|---|---|---|---|
 | `id` | bigint | no | PK | Identificador del bien (global de la red) |
-| `tipo` | varchar(20) | no | `vehiculo`, `motocicleta`, `telefono`, `computadora` u `otro` (validado por la aplicación) | Tipo de bien |
-| `identificador_norm` | varchar(60) | no | único | Identificador en mayúsculas y sin espacios, guiones ni puntos (`AB-123 CD` → `AB123CD`): la patente en los vehículos, el IMEI o el número de serie en otros bienes. **Es lo único por lo que dos bienes coinciden**: el motor y el chasis no son identificadores y nunca cruzan casos. Lo usa R06 |
+| `tipo` | varchar(20) | no | `vehiculo`, `motocicleta`, `telefono`, `computadora` u `otro` (validado por la aplicación) | Tipo de bien. Solo `vehiculo` y `motocicleta` son identificables y cruzan entre casos |
+| `identificador_norm` | varchar(60) | no | único | Identificador en mayúsculas y sin espacios, guiones ni puntos (`AB-123 CD` → `AB123CD`): la patente en los vehículos, el IMEI o el número de serie en otros bienes. **Es lo único por lo que dos bienes coinciden**: el motor y el chasis no son identificadores y nunca cruzan casos. Lo usa R06. Solo cruzan entre casos los bienes de tipo `vehiculo` y `motocicleta` (identificables por su patente); un teléfono, una computadora u otro bien se registra con su identificador, pero nunca coincide con el de otro caso |
 | `descripcion` | varchar(250) | no | puede quedar vacío | Descripción global del bien. No se escribe ni se devuelve: la del caso está en `bien_afectado.descripcion` |
 | `atributos` | jsonb | no | | Atributos globales del bien. Mismo criterio que `descripcion` |
 
@@ -108,6 +108,11 @@ Se crea una por siniestro.
 | `tipo` | varchar(150) | no | puede quedar vacío | Tipo de siniestro, por ejemplo «Incendio total del vehículo» |
 | `fecha_hecho` | timestamptz | no | | Momento declarado del hecho. La usan R01, R02, R04 y R08 (con su fecha local). Su fecha local no puede ser anterior a `poliza.inicio_vigencia` (lo valida la API) |
 | `fecha_denuncia` | date | sí | | Día en que se hizo la denuncia. La usa R08 |
+| `numero_denuncia` | varchar(60) | no | puede quedar vacío | Número de la denuncia, por ejemplo `DEN-2026-0147` (Anexo 1) **(extra)** |
+| `hora_denuncia` | time | sí | | Hora de la denuncia, por ejemplo `10:20`. R08 no la usa: sigue contando por `fecha_denuncia` **(extra)** |
+| `asesor` | varchar(100) | no | puede quedar vacío | Asesor que carga la denuncia, por ejemplo «Código PA-031» **(extra)** |
+| `intervenciones` | varchar(250) | no | puede quedar vacío | Quién intervino en el hecho, por ejemplo «Bomberos y policía» **(extra)** |
+| `documentacion_adjunta` | text | no | puede quedar vacío | Documentación que declara la denuncia, por ejemplo «DNI, cédula del vehículo, 6 fotografías y constancia de bomberos. Acta policial pendiente». Los archivos reales están en `documento` **(extra)** |
 | `lugar` | varchar(250) | no | puede quedar vacío | Lugar del hecho |
 | `relato` | text | no | puede quedar vacío | Relato del hecho. Privado del expediente |
 | `estado` | varchar(15) | no | `borrador`, `en_analisis`, `cerrado`, `archivado` o `anulado` (validado por la aplicación) | Estado del caso |
@@ -354,8 +359,10 @@ Valores del E4 (línea del campo; la longitud está dos líneas más abajo) cont
 | `persona.nombre` | No figura | `varchar(150)`; nunca se devuelve a un cliente (el nombre del caso está en `participacion.nombre`) |
 | `participacion.rol` (E4:1648) | Texto, longitud 20 | `varchar(15)` |
 | `participacion.nombre` | No figura | Columna nueva `varchar(150)` |
-| `bien.identificador_norm` (E4:1656) | Texto, longitud 40; «Dominio, número de motor, chasis, IMEI o número de serie» | `varchar(60)`; el motor y el chasis **no** son identificadores: solo coinciden la patente (vehículos) y el IMEI o número de serie |
+| `bien.identificador_norm` (E4:1656) | Texto, longitud 40; «Dominio, número de motor, chasis, IMEI o número de serie» | `varchar(60)`; el motor y el chasis **no** son identificadores: solo coincide la patente, y solo en los bienes `vehiculo` y `motocicleta` (el IMEI o el número de serie se registran pero no cruzan) |
 | `bien.atributos` (E4:1660) | «Datos que dependen del tipo de bien, como marca o modelo» | Igual en `bien`, pero la API no lo escribe ni lo devuelve: los atributos del caso (motor, chasis, etc.) están en `bien_afectado.atributos` |
 | `bien_afectado.detalle_dano` (E4:1664) | Texto, longitud 255 | `text`, sin límite |
 | `bien_afectado.descripcion`, `bien_afectado.atributos` | No figuran | Columnas nuevas (`varchar(250)` y `jsonb`) |
+| `siniestro.numero_denuncia`, `hora_denuncia`, `asesor`, `intervenciones`, `documentacion_adjunta` | No figuran (están en el Anexo 1 pero no en el diccionario) | Columnas nuevas (`varchar(60)`, `time`, `varchar(100)`, `varchar(250)` y `text`); la fecha de la denuncia sigue siendo `date` |
+| `bien.tipo` (E4:1652) | «Vehículo, motocicleta, teléfono, computadora u otro bien» | Igual, pero solo `vehiculo` y `motocicleta` cruzan entre casos; los demás tipos se registran sin cruzar |
 | Tablas `tarea_cambio` y `conjunto_reglas.creado_por_id` / `basado_en_id`, `siniestro.motivo_anulacion` / `creado_en` / `actualizado_en`, `documento.nombre_original` / `tipo_contenido` / `tamanio` / `subido_por_id`, `tarea.creada_en` | No figuran | Extras técnicos nuevos |

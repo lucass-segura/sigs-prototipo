@@ -1,6 +1,6 @@
 """Datos de demostración (todo ficticio): la narrativa del TFG sobre dos espacios de trabajo."""
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -59,10 +59,14 @@ def _cierre(resultado, valoracion, justificacion, creado_en, conclusion, irregul
 
 
 def _guardar_documento(caso, perito):
-    """Un documento de texto ficticio en el volumen privado."""
+    """Un documento de texto ficticio en el volumen privado.
+
+    El nombre del archivo sale del número de expediente (no es aleatorio): así `db/sql/documentos/` y las filas
+    de `documento` de `02_cargar_datos_demo.sql` siempre coinciden, se regeneren cuando se regeneren.
+    """
     carpeta = Path(settings.DOCUMENTOS_DIR) / str(caso.pk)
     carpeta.mkdir(parents=True, exist_ok=True)
-    nombre = uuid.uuid4().hex
+    nombre = uuid.uuid5(uuid.NAMESPACE_URL, f"sigs-demo/{caso.numero_expediente}/acta-inspeccion").hex
     contenido = (
         "Acta de inspección (documento ficticio).\n"
         "Vehículo AB123CD con daños por incendio. Numeración de motor y chasis coincide con la cédula.\n"
@@ -114,6 +118,8 @@ def cargar_demo():
     # Incendio total (Norte, PE-08): R01 25, R02 20 y R06 25 → 55, alta. Los datos son los del Anexo 1 del Entregable 4.
     exp_0147 = caso(
         "pe08", "EXP-2026-0147", tipo="Incendio total del vehículo", fecha_hecho=_momento(2026, 8, 12, 23, 40), fecha_denuncia=date(2026, 8, 14),
+        hora_denuncia=time(10, 20), numero_denuncia="DEN-2026-0147", asesor="Código PA-031", intervenciones="Bomberos y policía",
+        documentacion_adjunta="DNI, cédula del vehículo, 6 fotografías y constancia de bomberos. Acta policial pendiente",
         lugar="Vía pública, frente al domicilio del asegurado, Neuquén",
         relato="El vehículo estaba estacionado frente al domicilio. Un vecino avisó que salía humo del motor y el asegurado llamó a bomberos.",
         poliza=_poliza("AUT-000123", date(2026, 7, 20), date(2026, 8, 4), cobertura="Terceros completo con incendio total"), personas=[p17],

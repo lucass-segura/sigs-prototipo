@@ -48,6 +48,7 @@ services:
       EMAIL_HOST: mailpit
       EMAIL_PORT: "1025"
       DOCUMENTOS_DIR: /data/documentos
+      CARGAR_DATOS_DEMO: ${CARGAR_DATOS_DEMO:-true}
     volumes:
       - documentos:/data/documentos
     depends_on:
