@@ -11,6 +11,8 @@ import { EncabezadoPagina, Vista } from "@/componentes/Vista";
 import { Campo } from "@/componentes/Campo";
 import { AvisoAmbar, AvisoVerde, ErrorFormulario, Exito } from "@/componentes/Avisos";
 import { ErrorCarga } from "@/componentes/Estados";
+import { SelectorFecha } from "@/componentes/fechas/SelectorFecha";
+import { useValidezFechas } from "@/componentes/fechas/useValidezFechas";
 import { EsqueletoLineas } from "@/componentes/Esqueletos";
 
 function siguienteVersion(version: string): string {
@@ -48,11 +50,13 @@ function FormularioNuevaVersion({
   const [error, setError] = useState<unknown>(null);
   const [errorLocal, setErrorLocal] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const validez = useValidezFechas();
 
   async function enviar(evento: FormEvent) {
     evento.preventDefault();
     setError(null);
     setErrorLocal(null);
+    if (validez.revisar()) return;
 
     const reglas: CuerpoVersionReglas["reglas"] = {};
     for (const r of vigente.reglas) {
@@ -127,7 +131,16 @@ function FormularioNuevaVersion({
             <input id="nv-version" value={version} onChange={(e) => setVersion(e.target.value)} required />
           </Campo>
           <Campo etiqueta="Vigente desde" id="nv-desde" errores={erroresDeCampo(error, "vigente_desde")}>
-            <input id="nv-desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} required />
+            <SelectorFecha
+              id="nv-desde"
+              etiqueta="Vigente desde"
+              valor={desde}
+              onCambio={setDesde}
+              atajos={["hoy"]}
+              requerido
+              mensajeRequerido="Elegí desde cuándo rige la versión."
+              {...validez.props("nv-desde")}
+            />
           </Campo>
         </div>
 

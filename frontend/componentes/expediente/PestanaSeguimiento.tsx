@@ -4,13 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api, erroresDeCampo, mensajeDeError } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { formatoDiaMes, formatoFechaHora } from "@/lib/formato";
+import { formatoDiaMes, formatoFechaHora, hoyISO } from "@/lib/formato";
 import { grupoDeVencimiento, insigniaDeVencimiento } from "@/lib/vencimientos";
 import { ESTADOS_TAREA, ETIQUETA_ESTADO_TAREA } from "@/lib/etiquetas";
 import type { EstadoTarea, Nota, Siniestro, Tarea } from "@/lib/tipos";
 import { Campo } from "../Campo";
 import { AvisoAmbar, ErrorFormulario } from "../Avisos";
 import { ErrorCarga } from "../Estados";
+import { SelectorFecha } from "../fechas/SelectorFecha";
+import { useValidezFechas } from "../fechas/useValidezFechas";
 import { EsqueletoLineas } from "../Esqueletos";
 import { useNotificar } from "../Notificaciones";
 
@@ -64,6 +66,7 @@ function Tablero({ idSiniestro }: { idSiniestro: number }) {
   const [creando, setCreando] = useState(false);
   const [titulo, setTitulo] = useState("");
   const [vence, setVence] = useState("");
+  const validez = useValidezFechas();
   const [error, setError] = useState<unknown>(null);
   const [guardando, setGuardando] = useState(false);
   const [columnaSobre, setColumnaSobre] = useState<EstadoTarea | null>(null);
@@ -90,6 +93,7 @@ function Tablero({ idSiniestro }: { idSiniestro: number }) {
   async function crear(evento: FormEvent) {
     evento.preventDefault();
     setError(null);
+    if (validez.revisar()) return;
     setGuardando(true);
     try {
       await api(`/siniestros/${idSiniestro}/tareas`, {
@@ -194,7 +198,15 @@ function Tablero({ idSiniestro }: { idSiniestro: number }) {
                       />
                     </Campo>
                     <Campo etiqueta="Vence (opcional)" id="tarea-vence" errores={erroresDeCampo(error, "vence_en")}>
-                      <input id="tarea-vence" type="date" value={vence} onChange={(e) => setVence(e.target.value)} />
+                      <SelectorFecha
+                        id="tarea-vence"
+                        etiqueta="Vencimiento de la tarea"
+                        valor={vence}
+                        onCambio={setVence}
+                        atajos={["hoy", "manana", "en7dias", "finDeMes", "sinFecha"]}
+                        aviso={(v) => (v < hoyISO() ? "Esa fecha ya pasó: la tarea va a figurar como vencida." : null)}
+                        {...validez.props("tarea-vence")}
+                      />
                     </Campo>
                     <ErrorFormulario error={error} />
                     <div className="acciones">

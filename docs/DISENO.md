@@ -268,6 +268,8 @@ Casos (nombres de personas ficticios tipo "P-17" con DNI ficticio):
 - **Sin coincidencias**: EXP-2026-0151 Robo de celular (confirmado) y EXP-2026-0122 Daño por granizo (cerrado). Hay además un borrador, EXP-2026-0158 Robo en comercio.
 - Cada caso confirmado se evalúa con `guardar_evaluacion` después de cargar todos los datos, para que las evaluaciones vean la red completa.
 
+Los vencimientos de las tareas de la demo son relativos al día de carga: `seed_demo` los calcula con la fecha local (America/Argentina/Buenos_Aires) —en EXP-2026-0147, una tarea vencida (hoy−2) y una de esta semana (hoy+3), y en EXP-2026-0139 una de hoy y una de hoy+12— y deja otras sin fecha o hechas; las fechas del siniestro (Anexo 1) no cambian. En la carga por SQL, `scripts/generar_sql.sh` anota el día de generación en `db/sql/02_cargar_datos_demo.sql` (`-- generado: AAAA-MM-DD`) y `scripts/cargar_sql.sh`, después de cargar, corre cada `tarea.vence_en` no nulo por `(hoy local − fecha de generación)` días con el rol dueño de las tablas (`tarea` no es de solo altas), e imprime los días y las tareas afectadas; si la base ya tenía datos no corre nada, para no desplazar dos veces.
+
 ## 9. Frontend
 
 - Next.js 15 (App Router, TypeScript, `output: "standalone"`), todo en componentes de cliente que llaman a `/api` con `credentials: "same-origin"` y el header `X-CSRFToken` leído de la cookie `csrftoken` en los métodos que no son GET. Antes del primer POST se llama a `GET /api/auth/sesion` para obtener la cookie. Sin librerías de UI: CSS propio (globals.css o CSS modules) que replica las maquetas de `docs/referencias/pantallas-*.png`.

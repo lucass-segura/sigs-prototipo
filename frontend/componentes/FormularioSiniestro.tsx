@@ -3,7 +3,8 @@
 // Registro y edición de borradores (HU-03) con confirmación inmediata (HU-04).
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, erroresDeCampo } from "@/lib/api";
+import { ErrorApi, api, erroresDeCampo } from "@/lib/api";
+import { formatearFecha, separarFechaHora, unirFechaHora } from "@/lib/fechas";
 import { aInputFecha, aInputFechaHora, aInputHora } from "@/lib/formato";
 import {
   ETIQUETA_ROL_PERSONA,
@@ -26,6 +27,10 @@ import { useApi } from "@/lib/useApi";
 import { Campo } from "./Campo";
 import { AvisoVerde, ErrorFormulario } from "./Avisos";
 import { Cargando, ErrorCarga } from "./Estados";
+import { SelectorFecha } from "./fechas/SelectorFecha";
+import { SelectorHora } from "./fechas/SelectorHora";
+import { useAhora } from "./fechas/useAhora";
+import { useValidezFechas } from "./fechas/useValidezFechas";
 import { EncabezadoPagina, Vista } from "./Vista";
 
 interface FilaPersona {
@@ -80,6 +85,7 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
   const [primerPago, setPrimerPago] = useState("");
   const [tipo, setTipo] = useState("");
   const [fechaHecho, setFechaHecho] = useState("");
+  const [horaHecho, setHoraHecho] = useState("");
   const [fechaDenuncia, setFechaDenuncia] = useState("");
   const [horaDenuncia, setHoraDenuncia] = useState("");
   const [numeroDenuncia, setNumeroDenuncia] = useState("");
@@ -93,6 +99,17 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
   const [error, setError] = useState<unknown>(null);
   const [enviando, setEnviando] = useState<null | "borrador" | "confirmar">(null);
   const [precargado, setPrecargado] = useState(false);
+  const validez = useValidezFechas();
+  const ahora = useAhora();
+  const [errorDeFechas, setErrorDeFechas] = useState(false);
+
+  // El aviso general de fechas se va solo cuando ya no queda ningún selector marcado.
+  useEffect(() => {
+    if (errorDeFechas && !validez.hayInvalidos) {
+      setError(null);
+      setErrorDeFechas(false);
+    }
+  }, [errorDeFechas, validez.hayInvalidos]);
 
   // Con un borrador existente se cargan sus datos una sola vez.
   useEffect(() => {
@@ -105,7 +122,9 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
     setInicioVigencia(aInputFecha(s.poliza?.inicio_vigencia));
     setPrimerPago(aInputFecha(s.poliza?.primer_pago));
     setTipo(s.tipo);
-    setFechaHecho(aInputFechaHora(s.fecha_hecho));
+    const hecho = separarFechaHora(aInputFechaHora(s.fecha_hecho));
+    setFechaHecho(hecho.fecha);
+    setHoraHecho(hecho.hora);
     setFechaDenuncia(aInputFecha(s.fecha_denuncia));
     setHoraDenuncia(aInputHora(s.hora_denuncia));
     setNumeroDenuncia(s.numero_denuncia ?? "");
@@ -174,7 +193,7 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
         primer_pago: primerPago || null,
       },
       tipo: tipo.trim(),
-      ...(fechaHecho ? { fecha_hecho: fechaHecho } : {}),
+      ...(fechaHecho && horaHecho ? { fecha_hecho: unirFechaHora(fechaHecho, horaHecho) } : {}),
       fecha_denuncia: fechaDenuncia || null,
       hora_denuncia: horaDenuncia || null,
       numero_denuncia: numeroDenuncia.trim(),
@@ -190,6 +209,13 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
 
   async function guardar(confirmar: boolean) {
     setError(null);
+    setErrorDeFechas(false);
+    // Un selector con una fecha u hora que no se puede enviar se marca y no se manda nada.
+    if (validez.revisar()) {
+      setError(new ErrorApi(400, "Revisá las fechas y horas marcadas en rojo antes de guardar.", []));
+      setErrorDeFechas(true);
+      return;
+    }
     setEnviando(confirmar ? "confirmar" : "borrador");
     try {
       const cuerpo = armarCuerpo();
@@ -269,7 +295,7 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
               <h2>Póliza</h2>
             </div>
             <div className="tarjeta-cuerpo">
-              <div className="rejilla-campos rejilla-auto">
+              <div className="rejilla-campos rejilla-poliza">
                 <Campo etiqueta="Compañía" id="compania" errores={erroresDeCampo(error, "poliza.compania")}>
                   <input id="compania" value={compania} onChange={(e) => setCompania(e.target.value)} />
                 </Campo>
@@ -280,10 +306,25 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
                   <input id="cobertura" value={cobertura} onChange={(e) => setCobertura(e.target.value)} />
                 </Campo>
                 <Campo etiqueta="Inicio de vigencia" id="inicio-vigencia" errores={erroresDeCampo(error, "poliza.inicio_vigencia")}>
-                  <input id="inicio-vigencia" type="date" value={inicioVigencia} onChange={(e) => setInicioVigencia(e.target.value)} />
+                  <SelectorFecha
+                    id="inicio-vigencia"
+                    etiqueta="Inicio de vigencia"
+                    valor={inicioVigencia}
+                    onCambio={setInicioVigencia}
+                    atajos={["hoy"]}
+                    {...validez.props("inicio-vigencia")}
+                  />
                 </Campo>
                 <Campo etiqueta="Primer pago" id="primer-pago" errores={erroresDeCampo(error, "poliza.primer_pago")}>
-                  <input id="primer-pago" type="date" value={primerPago} onChange={(e) => setPrimerPago(e.target.value)} />
+                  <SelectorFecha
+                    id="primer-pago"
+                    etiqueta="Primer pago"
+                    valor={primerPago}
+                    onCambio={setPrimerPago}
+                    atajos={["hoy"]}
+                    aviso={(v) => (fechaHecho && v > fechaHecho ? "El primer pago es posterior al día del hecho." : null)}
+                    {...validez.props("primer-pago")}
+                  />
                 </Campo>
               </div>
             </div>
@@ -303,27 +344,68 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
                     ))}
                   </datalist>
                 </Campo>
-                <Campo
-                  etiqueta="Fecha y hora del hecho"
-                  id="fecha-hecho"
-                  ayuda="No puede ser anterior al inicio de vigencia de la póliza."
-                  errores={erroresDeCampo(error, "fecha_hecho")}
-                >
-                  <input id="fecha-hecho" type="datetime-local" value={fechaHecho} onChange={(e) => setFechaHecho(e.target.value)} />
-                </Campo>
-                <Campo etiqueta="Fecha de denuncia" id="fecha-denuncia" errores={erroresDeCampo(error, "fecha_denuncia")}>
-                  <input id="fecha-denuncia" type="date" value={fechaDenuncia} onChange={(e) => setFechaDenuncia(e.target.value)} />
-                </Campo>
-              </div>
-              <div className="rejilla-campos col-3">
                 <Campo etiqueta="Número de denuncia" id="numero-denuncia" errores={erroresDeCampo(error, "numero_denuncia")}>
                   <input id="numero-denuncia" className="mono" value={numeroDenuncia} onChange={(e) => setNumeroDenuncia(e.target.value)} />
                 </Campo>
-                <Campo etiqueta="Hora de la denuncia" id="hora-denuncia" errores={erroresDeCampo(error, "hora_denuncia")}>
-                  <input id="hora-denuncia" type="time" value={horaDenuncia} onChange={(e) => setHoraDenuncia(e.target.value)} />
-                </Campo>
                 <Campo etiqueta="Asesor que carga" id="asesor" errores={erroresDeCampo(error, "asesor")}>
                   <input id="asesor" value={asesor} onChange={(e) => setAsesor(e.target.value)} />
+                </Campo>
+              </div>
+              <div className="rejilla-campos rejilla-fecha-hora">
+                <Campo
+                  etiqueta="Fecha del hecho"
+                  id="fecha-hecho"
+                  ayuda="No puede ser futura ni anterior al inicio de vigencia de la póliza."
+                  errores={erroresDeCampo(error, "fecha_hecho")}
+                >
+                  <SelectorFecha
+                    id="fecha-hecho"
+                    etiqueta="Fecha del hecho"
+                    valor={fechaHecho}
+                    onCambio={setFechaHecho}
+                    minimo={inicioVigencia || undefined}
+                    motivoMinimo={`Es anterior al inicio de vigencia de la póliza (${formatearFecha(inicioVigencia)}): un hecho anterior no es un siniestro.`}
+                    noFuturo
+                    atajos={["hoy", "ayer"]}
+                    requerido
+                    mensajeRequerido="Elegí la fecha del hecho."
+                    {...validez.props("fecha-hecho")}
+                  />
+                </Campo>
+                <Campo etiqueta="Hora del hecho" id="hora-hecho">
+                  <SelectorHora
+                    id="hora-hecho"
+                    etiqueta="Hora del hecho"
+                    valor={horaHecho}
+                    onCambio={setHoraHecho}
+                    maxima={fechaHecho && fechaHecho === ahora.fecha ? ahora.hora : undefined}
+                    motivoMaxima="Todavía no pasó: la hora no puede ser posterior a la actual."
+                    requerido
+                    mensajeRequerido="Elegí la hora del hecho."
+                    {...validez.props("hora-hecho")}
+                  />
+                </Campo>
+              </div>
+              <div className="rejilla-campos rejilla-fecha-hora">
+                <Campo etiqueta="Fecha de denuncia" id="fecha-denuncia" errores={erroresDeCampo(error, "fecha_denuncia")}>
+                  <SelectorFecha
+                    id="fecha-denuncia"
+                    etiqueta="Fecha de denuncia"
+                    valor={fechaDenuncia}
+                    onCambio={setFechaDenuncia}
+                    atajos={["hoy"]}
+                    aviso={(v) => (fechaHecho && v < fechaHecho ? "La denuncia es anterior al día del hecho. Revisá las fechas." : null)}
+                    {...validez.props("fecha-denuncia")}
+                  />
+                </Campo>
+                <Campo etiqueta="Hora de la denuncia" id="hora-denuncia" errores={erroresDeCampo(error, "hora_denuncia")}>
+                  <SelectorHora
+                    id="hora-denuncia"
+                    etiqueta="Hora de la denuncia"
+                    valor={horaDenuncia}
+                    onCambio={setHoraDenuncia}
+                    {...validez.props("hora-denuncia")}
+                  />
                 </Campo>
               </div>
               <Campo etiqueta="Lugar" id="lugar" errores={erroresDeCampo(error, "lugar")}>
