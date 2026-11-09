@@ -10,3 +10,4 @@ frontend/out/
 dist/
 *.zip
 .atl/
+.tmp/

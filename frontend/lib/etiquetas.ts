@@ -67,7 +67,7 @@ export const ETIQUETA_TIPO_BIEN: Record<TipoBien, string> = {
 };
 
 export const TIPOS_SINIESTRO_SUGERIDOS = [
-  "Incendio total",
+  "Incendio total del vehículo",
   "Choque en calle",
   "Robo parcial de vehículo",
   "Robo de rueda de auxilio",
@@ -86,13 +86,13 @@ export const TIPOS_DOCUMENTO_SUGERIDOS = [
   "Otro",
 ];
 
-/** Escala de valoración (tabla 2 del TFG). */
+/** Escala de valoración (tabla 2 del Entregable 4), con el texto completo. */
 export const ESCALA_VALORACION: { desde: number; hasta: number; texto: string }[] = [
-  { desde: 1, hasta: 2, texto: "No verificado, con elementos que lo contradicen" },
-  { desde: 3, hasta: 4, texto: "Inconsistencias relevantes" },
-  { desde: 5, hasta: 6, texto: "Dudas concretas" },
-  { desde: 7, hasta: 8, texto: "Verificado con observaciones menores" },
-  { desde: 9, hasta: 10, texto: "Verificado sin observaciones" },
+  { desde: 1, hasta: 2, texto: "El hecho no pudo verificarse y hay elementos que lo contradicen." },
+  { desde: 3, hasta: 4, texto: "Hay inconsistencias relevantes que no se pudieron aclarar." },
+  { desde: 5, hasta: 6, texto: "Hay dudas concretas sin elementos suficientes para confirmarlas ni descartarlas." },
+  { desde: 7, hasta: 8, texto: "El hecho se verificó con observaciones menores o documentación incompleta." },
+  { desde: 9, hasta: 10, texto: "El hecho se verificó sin observaciones." },
 ];
 
 export function textoValoracion(n: number): string {
@@ -103,6 +103,10 @@ export const ETIQUETA_MOTIVO_EVALUACION: Record<string, string> = {
   confirmacion: "confirmación del siniestro",
   recalculo: "recálculo del perito",
   antecedente_confirmado: "nuevo antecedente confirmado",
+  antecedente_cerrado: "antecedente cerrado o con cierre modificado",
+  antecedente_archivado: "antecedente archivado",
+  antecedente_anulado: "antecedente anulado",
+  nueva_version: "nueva versión de reglas",
   escenario: "escenario de prueba",
 };
 

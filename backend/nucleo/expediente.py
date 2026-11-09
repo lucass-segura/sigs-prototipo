@@ -1,5 +1,6 @@
 """Servicios de dominio del expediente: numeración, personas, bienes, cierres y fechas."""
 import re
+from datetime import datetime, time
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -15,6 +16,11 @@ def fecha_local(momento):
     if timezone.is_naive(momento):
         momento = timezone.make_aware(momento)
     return timezone.localtime(momento).date()
+
+
+def inicio_del_dia_local(momento):
+    """Primer instante (00:00 locales) del día local de `momento`."""
+    return timezone.make_aware(datetime.combine(fecha_local(momento), time.min))
 
 
 def generar_numero_expediente(ahora=None):

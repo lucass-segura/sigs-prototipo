@@ -6,13 +6,14 @@ import { api, erroresDeCampo } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { formatoFechaHora } from "@/lib/formato";
 import { ESCALA_VALORACION, ETIQUETA_RESULTADO, textoValoracion } from "@/lib/etiquetas";
-import type { Cierre, ResultadoReclamo, RespuestaCierre, Siniestro } from "@/lib/tipos";
+import type { Cierre, Documento, ResultadoReclamo, RespuestaCierre, Siniestro } from "@/lib/tipos";
 import { Campo } from "../Campo";
 import { AvisoAmbar, ErrorFormulario } from "../Avisos";
 import { Cargando, ErrorCarga } from "../Estados";
 
 const RESULTADOS = Object.keys(ETIQUETA_RESULTADO) as ResultadoReclamo[];
 const MAXIMO_JUSTIFICACION = 500;
+const MAXIMO_OBSERVACION = 500;
 
 interface DatosCierre {
   resultado: ResultadoReclamo;
@@ -21,6 +22,9 @@ interface DatosCierre {
   valoracion: number | null;
   justificacion: string;
   motivo: string;
+  /** Respaldo de la irregularidad: ids de documentos del expediente y/o una observación. */
+  documentosRespaldo: number[];
+  observacionRespaldo: string;
 }
 
 function datosIniciales(vigente: Cierre | null): DatosCierre {
@@ -31,6 +35,8 @@ function datosIniciales(vigente: Cierre | null): DatosCierre {
     valoracion: vigente?.valoracion ?? null,
     justificacion: vigente?.justificacion ?? "",
     motivo: "",
+    documentosRespaldo: vigente?.documentos_respaldo.map((d) => d.id) ?? [],
+    observacionRespaldo: vigente?.observacion_respaldo ?? "",
   };
 }
 
@@ -45,9 +51,80 @@ function SelectorValoracion({ valor, alElegir }: { valor: number | null; alElegi
         ))}
       </div>
       <div className="texto-escala" aria-live="polite">
-        {valor ? `${valor}. ${textoValoracion(valor)}.` : "Elegí un valor de 1 a 10."}
+        {valor ? `${valor}. ${textoValoracion(valor)}` : "Elegí un valor de 1 a 10."}
       </div>
     </>
+  );
+}
+
+/** Respaldo de una irregularidad confirmada: documentos del expediente y/o una observación escrita. */
+function BloqueRespaldo({
+  idSiniestro,
+  datos,
+  cambiar,
+  error,
+}: {
+  idSiniestro: number;
+  datos: DatosCierre;
+  cambiar: <K extends keyof DatosCierre>(clave: K, valor: DatosCierre[K]) => void;
+  error: unknown;
+}) {
+  const documentos = useApi<Documento[]>(`/siniestros/${idSiniestro}/documentos`);
+  const lista = documentos.datos ?? [];
+  const errores = [
+    ...erroresDeCampo(error, "respaldo"),
+    ...erroresDeCampo(error, "documentos_respaldo"),
+    ...erroresDeCampo(error, "observacion_respaldo"),
+  ];
+
+  function alternar(id: number) {
+    cambiar(
+      "documentosRespaldo",
+      datos.documentosRespaldo.includes(id) ? datos.documentosRespaldo.filter((d) => d !== id) : [...datos.documentosRespaldo, id],
+    );
+  }
+
+  return (
+    <fieldset className="bloque-respaldo" aria-describedby="respaldo-ayuda">
+      <legend>Respaldo de la irregularidad</legend>
+      <p id="respaldo-ayuda" className="nota-pequena">
+        Una irregularidad confirmada necesita respaldo: elegí al menos un documento del expediente (por ejemplo una fotografía)
+        o escribí una observación. El respaldo queda en este expediente y no se comparte con otros peritos.
+      </p>
+      <div className="campo">
+        <label>Documentos del expediente</label>
+        {documentos.cargando && !documentos.datos ? <small className="ayuda">Cargando documentos…</small> : null}
+        {documentos.error ? <small className="error-campo">No se pudieron cargar los documentos.</small> : null}
+        {documentos.datos && lista.length === 0 ? (
+          <small className="ayuda">Todavía no hay documentos. Subilos en la pestaña Documentos o escribí una observación.</small>
+        ) : null}
+        <div className="grupo-casillas">
+          {lista.map((d) => (
+            <label className="casilla" key={d.id}>
+              <input type="checkbox" checked={datos.documentosRespaldo.includes(d.id)} onChange={() => alternar(d.id)} />
+              {d.tipo} · {d.nombre_original || `Documento ${d.id}`}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="campo">
+        <label htmlFor="cierre-observacion-respaldo">Observación de respaldo</label>
+        <textarea
+          id="cierre-observacion-respaldo"
+          maxLength={MAXIMO_OBSERVACION}
+          value={datos.observacionRespaldo}
+          onChange={(e) => cambiar("observacionRespaldo", e.target.value)}
+        />
+        <div className="contador">
+          {datos.observacionRespaldo.length} / {MAXIMO_OBSERVACION}
+        </div>
+      </div>
+      {errores.length > 0 ? (
+        <small className="error-campo" role="alert">
+          {errores.join(" ")}
+        </small>
+      ) : null}
+    </fieldset>
   );
 }
 
@@ -89,6 +166,9 @@ function FormularioCierre({
           conclusion: datos.conclusion.trim(),
           valoracion: datos.valoracion,
           justificacion: datos.justificacion.trim(),
+          ...(datos.irregularidad
+            ? { documentos_respaldo: datos.documentosRespaldo, observacion_respaldo: datos.observacionRespaldo.trim() }
+            : {}),
           ...(esCambio ? { motivo_cambio: datos.motivo.trim() } : {}),
         },
       });
@@ -122,7 +202,12 @@ function FormularioCierre({
                   ))}
                 </select>
               </Campo>
-              <Campo etiqueta="Irregularidad confirmada" id="cierre-irregularidad" errores={erroresDeCampo(error, "irregularidad")}>
+              <Campo
+                etiqueta="Irregularidad confirmada"
+                id="cierre-irregularidad"
+                ayuda="Si es «Sí», hace falta un respaldo: un documento del expediente o una observación."
+                errores={erroresDeCampo(error, "irregularidad")}
+              >
                 <select
                   id="cierre-irregularidad"
                   value={datos.irregularidad ? "si" : "no"}
@@ -133,7 +218,10 @@ function FormularioCierre({
                 </select>
               </Campo>
             </div>
-            <Campo etiqueta="Conclusión pericial" id="cierre-conclusion" errores={erroresDeCampo(error, "conclusion")}>
+            {datos.irregularidad ? (
+              <BloqueRespaldo idSiniestro={idSiniestro} datos={datos} cambiar={cambiar} error={error} />
+            ) : null}
+            <Campo etiqueta="Conclusión pericial (obligatoria)" id="cierre-conclusion" errores={erroresDeCampo(error, "conclusion")}>
               <textarea id="cierre-conclusion" value={datos.conclusion} onChange={(e) => cambiar("conclusion", e.target.value)} />
             </Campo>
           </div>
@@ -185,7 +273,7 @@ function FormularioCierre({
             <h3>Se va a compartir</h3>
             <p>Tipo, fecha, resultado, irregularidad, valoración, justificación y perito responsable.</p>
             <h3>No se comparte</h3>
-            <p>Documentos, fotos, notas y datos personales.</p>
+            <p>Documentos, fotos, notas, respaldo de la irregularidad y datos personales.</p>
           </div>
         </section>
         <AvisoAmbar>Un valor bajo no equivale a fraude confirmado.</AvisoAmbar>
@@ -200,6 +288,25 @@ function FormularioCierre({
         ) : null}
       </div>
     </form>
+  );
+}
+
+/** Documentos y observación que respaldan una irregularidad (solo el perito responsable los ve). */
+function Respaldo({ cierre }: { cierre: Cierre }) {
+  if (cierre.documentos_respaldo.length === 0 && !cierre.observacion_respaldo) return <>—</>;
+  return (
+    <>
+      {cierre.documentos_respaldo.length > 0 ? (
+        <ul className="lista-simple">
+          {cierre.documentos_respaldo.map((d) => (
+            <li key={d.id}>
+              {d.tipo} · {d.nombre_original || `Documento ${d.id}`}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {cierre.observacion_respaldo ? <p>{cierre.observacion_respaldo}</p> : null}
+    </>
   );
 }
 
@@ -284,6 +391,11 @@ export function PestanaCierre({ siniestro, alCambiar }: { siniestro: Siniestro; 
               <tbody>
                 <FilaDato clave="Resultado del reclamo">{ETIQUETA_RESULTADO[vigente.resultado_reclamo]}</FilaDato>
                 <FilaDato clave="Irregularidad confirmada">{vigente.irregularidad ? "Sí" : "No"}</FilaDato>
+                {vigente.irregularidad ? (
+                  <FilaDato clave="Respaldo de la irregularidad">
+                    <Respaldo cierre={vigente} />
+                  </FilaDato>
+                ) : null}
                 <FilaDato clave="Conclusión pericial">{vigente.conclusion || "—"}</FilaDato>
                 <FilaDato clave="Valoración pericial">
                   <strong>{vigente.valoracion} / 10</strong>{" "}
@@ -310,6 +422,7 @@ export function PestanaCierre({ siniestro, alCambiar }: { siniestro: Siniestro; 
                   <th>Fecha</th>
                   <th>Valoración</th>
                   <th>Justificación</th>
+                  <th>Irregularidad y respaldo</th>
                   <th>Motivo del cambio</th>
                   <th>Perito</th>
                 </tr>
@@ -325,6 +438,7 @@ export function PestanaCierre({ siniestro, alCambiar }: { siniestro: Siniestro; 
                         {c.id === vigente.id ? <span className="etiqueta-chica">Vigente</span> : null}
                       </td>
                       <td>{c.justificacion}</td>
+                      <td>{c.irregularidad ? <Respaldo cierre={c} /> : "No"}</td>
                       <td>{c.motivo_cambio || "—"}</td>
                       <td>{c.perito.nombre}</td>
                     </tr>
@@ -341,7 +455,7 @@ export function PestanaCierre({ siniestro, alCambiar }: { siniestro: Siniestro; 
             <h3>Se va a compartir</h3>
             <p>Tipo, fecha, resultado, irregularidad, valoración, justificación y perito responsable.</p>
             <h3>No se comparte</h3>
-            <p>Documentos, fotos, notas y datos personales.</p>
+            <p>Documentos, fotos, notas, respaldo de la irregularidad y datos personales.</p>
           </div>
         </section>
         <AvisoAmbar>Un valor bajo no equivale a fraude confirmado.</AvisoAmbar>

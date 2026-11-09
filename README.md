@@ -64,16 +64,16 @@ Todos usan la contraseña **`Demo.Sigs#2026`**.
 ## Recorrido sugerido
 
 1. **Ingresar como perito.** Abrí <http://localhost> y entrá con `perito08@sigs.test`. El panel **Mis expedientes** muestra los casos ordenados por prioridad.
-2. **Abrir EXP-2026-0147 (Incendio total).** En la pestaña **Datos** están la póliza, las personas y el vehículo AB123CD.
+2. **Abrir EXP-2026-0147 (Incendio total del vehículo).** En la pestaña **Datos** están la póliza (cobertura «Terceros completo con incendio total»), el relato, las personas y el vehículo AB123CD (sedán modelo 2015, motor MTR-55821, chasis CHS-90311), como en el Anexo 1 del Entregable 4. Cada perito ve **solo sus propios expedientes**: si ingresás con `perito11@sigs.test` (mismo espacio) y pedís ese expediente por la API, responde 404 y queda como rechazo en la auditoría.
 3. **Ver el análisis.** En la pestaña **Análisis** el indicador da **55 / 100, prioridad alta**:
    - R01 Cobertura reciente: 25 (el hecho ocurrió 23 días después del inicio de vigencia).
    - R02 Pago reciente: 20 (el primer pago fue 8 días antes del hecho). La cobertura queda en 30 por el tope.
    - R06 Bien repetido: 25 (el vehículo figura en el antecedente S-2025-0381 de otro espacio).
 
    Debajo están las reglas que no se activaron, con su explicación, y la coincidencia en la red con la valoración promedio.
-4. **Abrir el resumen.** Con **Ver resumen** en S-2025-0381 se ve solo lo compartido: tipo, fecha, vínculo, resultado, irregularidad, valoración, justificación, perito responsable y su correo (porque PE-15 lo habilitó). La pantalla aclara qué queda oculto. La consulta queda en la auditoría.
+4. **Abrir el resumen.** Con **Ver resumen** en S-2025-0381 se ve solo lo compartido: tipo, fecha, vínculo, resultado, irregularidad, valoración, justificación, perito responsable y su correo (porque PE-15 lo habilitó y el antecedente está cerrado; en un antecedente en análisis el correo no se muestra). Un antecedente solo cuenta si su fecha del hecho es anterior a la del caso analizado. La pantalla aclara qué queda oculto. La consulta queda en la auditoría.
 5. **Seguimiento y documentos.** En **Seguimiento** se mueven tareas entre columnas y se agregan notas privadas. En **Documentos** se sube y se descarga un archivo, solo por la API y con verificación de permiso.
-6. **Cerrar con valoración.** En **Cierre** se carga el resultado, la irregularidad, la conclusión, una valoración de 1 a 10 y la justificación, que es obligatoria. Después se puede **cambiar la valoración** con un motivo: el registro anterior se conserva.
+6. **Cerrar con valoración.** En **Cierre** se carga el resultado, la irregularidad, la **conclusión (obligatoria)**, una valoración de 1 a 10 (con el texto completo de la escala) y la justificación, que también es obligatoria. Si marcás «Irregularidad confirmada = Sí» hace falta un **respaldo**: elegir un documento del expediente (subilo antes en **Documentos**) o escribir una observación. Después se puede **cambiar la valoración** con un motivo: el registro anterior se conserva. Al cerrar, archivar o anular un caso, los casos en análisis que lo tienen como antecedente se **recalculan solos** (se crea una evaluación nueva, la anterior se conserva). El botón **Recalcular** sigue disponible.
 7. **Otros casos de la demo:**
    - **EXP-2026-0160**, robo de rueda de auxilio: el dominio se repite en varios antecedentes de los dos espacios.
    - **EXP-2026-0139**: activa R07 por un antecedente cerrado con irregularidad confirmada. El caso anulado EXP-2026-0120 comparte el vehículo y **no** aparece como antecedente.
@@ -82,7 +82,9 @@ Todos usan la contraseña **`Demo.Sigs#2026`**.
 9. **Ingresar como administrador.** Con `admin.norte@sigs.test`:
    - En **Auditoría** se ven los intentos fallidos, el bloqueo, las consultas de resúmenes y los rechazos, con filtros por usuario, acción y resultado. Ningún registro se puede editar ni borrar.
    - En **Usuarios** se da de alta a un perito (el enlace de primer ingreso llega a Mailpit), se lo da de baja o se lo bloquea cerrando sus sesiones.
-10. **Ingresar como superadministrador.** Con `superadmin@sigs.test` se crean espacios de trabajo con su administrador y se publica una nueva versión de las reglas desde **Reglas del indicador**. Las evaluaciones anteriores conservan la versión con la que se calcularon.
+10. **Ingresar como superadministrador.** Con `superadmin@sigs.test` se crean espacios de trabajo con su administrador y se publica una nueva versión de las reglas desde **Reglas del indicador**. Todos los casos en análisis se recalculan con la versión nueva y las evaluaciones anteriores conservan la versión con la que se calcularon.
+
+Al registrar un siniestro, la fecha del hecho no puede ser anterior al inicio de vigencia de la póliza: el formulario muestra el error junto al campo.
 
 ## Pruebas
 
@@ -99,7 +101,8 @@ docker compose run --rm backend sh -c "python manage.py migrate -v0 && python ma
 Las pruebas cubren:
 
 - **Reglas:** los 30 escenarios con su resultado exacto (reglas activadas, puntos, topes, total y prioridad), la reproducibilidad (mismas entradas y misma versión dan el mismo resultado) y el versionado.
-- **Acceso:** 8 pruebas × 3 solicitudes directas a la API = 24 rechazos. Cada uno responde 403 o 404 sin filtrar datos y queda en la auditoría con `resultado = rechazado`.
+- **Acceso:** 8 pruebas × 3 solicitudes directas a la API = 24 rechazos. Cada uno responde 403 o 404 sin filtrar datos y queda en la auditoría con `resultado = rechazado`. Solo el perito asignado accede a un expediente: otro perito, incluso del mismo espacio, recibe 404.
+- **Reglas del Entregable 4:** antecedentes solo anteriores al hecho, R03 por persona, recálculo automático, respaldo de la irregularidad, conclusión obligatoria y hecho dentro de la vigencia.
 - **Funcionales (F1 a F4) y seguridad:** bloqueo al 5.º intento con correo, mensaje genérico, enlace de 1 hora y de un solo uso, baja, y auditoría inmodificable incluso con SQL directo del usuario de la aplicación.
 - Al menos un criterio de aceptación de cada historia de usuario (HU-01 a HU-17).
 

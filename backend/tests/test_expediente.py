@@ -153,7 +153,8 @@ def test_hu04_confirmar_un_siniestro_recalcula_los_casos_en_analisis_que_compart
     antes = c08.get(f"/api/siniestros/{id_norte}/evaluacion").json()
     c15 = cliente_de(perito15)
     previo = crear(
-        c15, numero_expediente="S-2025-0381", fecha_hecho="2025-07-10T10:00:00", poliza=cuerpo_siniestro()["poliza"],
+        c15, numero_expediente="S-2025-0381", fecha_hecho="2025-07-10T10:00:00",
+        poliza=dict(cuerpo_siniestro()["poliza"], inicio_vigencia="2024-03-01", primer_pago="2024-03-05"),
         personas=[{"tipo_identificador": "DNI", "identificador": "99999999", "nombre": "P-52", "roles": ["asegurado"]}],
         confirmar=True,
     )
@@ -231,7 +232,7 @@ def test_hu05_el_documento_privado_no_se_ve_en_el_resumen_de_otro_perito(perito0
     id_norte = crear(c08, confirmar=True).json()["id"]
     _subir(c08, id_norte, nombre="secreto.pdf", contenido=b"contenido-privado")
     c15 = cliente_de(perito15)
-    id_sur = crear(c15, numero_expediente="S-SUR", confirmar=True, personas=[]).json()["id"]
+    id_sur = crear(c15, numero_expediente="S-SUR", confirmar=True, personas=[], fecha_hecho="2026-09-01T10:00:00").json()["id"]
     resumen = c15.get(f"/api/siniestros/{id_sur}/antecedentes/{id_norte}/resumen")
     assert resumen.status_code == 200
     texto = resumen.content.decode()
@@ -264,7 +265,7 @@ def test_hu06_la_nota_no_se_muestra_en_el_resumen_de_otro_perito(perito08, perit
     id_norte = crear(c08, confirmar=True).json()["id"]
     c08.post(f"/api/siniestros/{id_norte}/notas", {"texto": "nota privada del perito"}, format="json")
     c15 = cliente_de(perito15)
-    id_sur = crear(c15, numero_expediente="S-SUR", confirmar=True, personas=[]).json()["id"]
+    id_sur = crear(c15, numero_expediente="S-SUR", confirmar=True, personas=[], fecha_hecho="2026-09-01T10:00:00").json()["id"]
     resumen = c15.get(f"/api/siniestros/{id_sur}/antecedentes/{id_norte}/resumen")
     assert resumen.status_code == 200 and "nota privada" not in resumen.content.decode()
 
@@ -302,11 +303,11 @@ def test_hu07_un_estado_invalido_se_rechaza_y_no_cambia_nada(perito08):
     assert Tarea.objects.get(pk=tarea_id).estado == "pendiente"
 
 
-def test_hu07_solo_el_responsable_mueve_la_tarea_y_otro_espacio_no_la_ve(perito08, perito11, perito15):
+def test_hu07_solo_el_perito_asignado_mueve_la_tarea_y_otro_perito_no_la_ve(perito08, perito11, perito15):
     cliente = cliente_de(perito08)
     id_ = crear(cliente).json()["id"]
     tarea_id = cliente.post(f"/api/siniestros/{id_}/tareas", {"titulo": "X"}, format="json").json()["id"]
-    assert cliente_de(perito11).patch(f"/api/tareas/{tarea_id}", {"estado": "hecha"}, format="json").status_code == 403
+    assert cliente_de(perito11).patch(f"/api/tareas/{tarea_id}", {"estado": "hecha"}, format="json").status_code == 404
     assert cliente_de(perito15).patch(f"/api/tareas/{tarea_id}", {"estado": "hecha"}, format="json").status_code == 404
     assert Tarea.objects.get(pk=tarea_id).estado == "pendiente"
 

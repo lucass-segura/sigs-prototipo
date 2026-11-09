@@ -320,6 +320,10 @@ class Cierre(SoloAltasModel):
     justificacion = models.CharField(max_length=500)
     creado_en = models.DateTimeField(default=timezone.now)
     motivo_cambio = models.TextField(blank=True, default="")
+    # Respaldo de la irregularidad confirmada (S18): ids de documentos del mismo expediente y/o una observación.
+    # Los exige la API cuando `irregularidad` es verdadera. No salen del expediente: el resumen no los muestra.
+    documentos_respaldo = models.JSONField(default=list, blank=True)
+    observacion_respaldo = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:
         db_table = "cierre"
@@ -392,6 +396,10 @@ class Evaluacion(SoloAltasModel):
         ("confirmacion", "Confirmación"),
         ("recalculo", "Recálculo"),
         ("antecedente_confirmado", "Antecedente confirmado"),
+        ("antecedente_cerrado", "Antecedente cerrado o con cierre modificado"),
+        ("antecedente_archivado", "Antecedente archivado"),
+        ("antecedente_anulado", "Antecedente anulado"),
+        ("nueva_version", "Nueva versión de reglas"),
         ("escenario", "Escenario de prueba"),
     ]
 

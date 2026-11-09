@@ -128,7 +128,7 @@ def test_hu11_el_resumen_trae_tipo_fecha_vinculo_resultado_irregularidad_valorac
     assert cuerpo["vinculos"] == [{"tipo": "bien", "etiqueta": "AB123CD", "rol_en_antecedente": "Bien afectado"}]
     assert cuerpo["cerrado"] is True and cuerpo["estado_texto"] == "Cerrado"
     assert cuerpo["resultado_reclamo"] == "aprobado" and cuerpo["irregularidad"] is False
-    assert cuerpo["valoracion"] == 7 and cuerpo["valoracion_texto"] == "Verificado con observaciones menores"
+    assert cuerpo["valoracion"] == 7 and cuerpo["valoracion_texto"] == "El hecho se verificó con observaciones menores o documentación incompleta."
     assert cuerpo["justificacion"] == "Faltó la denuncia policial original."
     assert cuerpo["perito_responsable"] == {"nombre": "PE-15"}
     assert cuerpo["origen"] == {"id": red.origen.id, "numero_expediente": "EXP-ORIGEN"}

@@ -698,6 +698,28 @@ textarea {
   gap: 4px 14px;
 }
 
+.bloque-respaldo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  background: #faf9f6;
+}
+
+.bloque-respaldo legend {
+  padding: 0 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.lista-simple {
+  margin: 0;
+  padding-left: 18px;
+}
+
 /* ------------------------------------------------------------ Autenticación */
 
 .auth {

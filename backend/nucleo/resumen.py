@@ -31,7 +31,9 @@ def construir_resumen(origen, antecedente_id):
     ]
     cierre = cierre_vigente(antecedente) if antecedente.estado in (Siniestro.CERRADO, Siniestro.ARCHIVADO) else None
     perito = antecedente.perito
-    contacto = {"email": perito.contacto_email} if perito.contacto_visible and perito.contacto_email else None
+    # el correo de contacto aparece en los resúmenes de los casos cerrados o archivados (HU-17, criterio 1)
+    cerrado_o_archivado = antecedente.estado in (Siniestro.CERRADO, Siniestro.ARCHIVADO)
+    contacto = {"email": perito.contacto_email} if cerrado_o_archivado and perito.contacto_visible and perito.contacto_email else None
     return {
         "numero_expediente": antecedente.numero_expediente,
         "tipo": antecedente.tipo,

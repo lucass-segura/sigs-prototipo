@@ -288,7 +288,12 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
                     ))}
                   </datalist>
                 </Campo>
-                <Campo etiqueta="Fecha y hora del hecho" id="fecha-hecho" errores={erroresDeCampo(error, "fecha_hecho")}>
+                <Campo
+                  etiqueta="Fecha y hora del hecho"
+                  id="fecha-hecho"
+                  ayuda="No puede ser anterior al inicio de vigencia de la póliza."
+                  errores={erroresDeCampo(error, "fecha_hecho")}
+                >
                   <input id="fecha-hecho" type="datetime-local" value={fechaHecho} onChange={(e) => setFechaHecho(e.target.value)} />
                 </Campo>
                 <Campo etiqueta="Fecha de denuncia" id="fecha-denuncia" errores={erroresDeCampo(error, "fecha_denuncia")}>

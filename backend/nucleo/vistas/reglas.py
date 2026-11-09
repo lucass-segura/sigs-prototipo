@@ -1,5 +1,5 @@
 """Reglas del indicador: lectura para todos y publicación de versiones (solo superadministrador)."""
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils.dateparse import parse_date
 from rest_framework import serializers
 from rest_framework.response import Response
@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 
 from .. import auditoria
 from ..models import ConjuntoReglas, Usuario
+from ..motor import recalcular_en_analisis
 from ..permisos import exigir_rol, no_encontrado
 from ..reglas import ESQUEMAS, conjunto_json, publicar_version, resumen_de_version, validar_parametros, validar_puntos_maximos, validar_topes
 
@@ -80,8 +81,13 @@ class PublicarVersion(APIView):
         if errores:
             raise serializers.ValidationError(errores)
         try:
-            nuevo = publicar_version(vigente, version.strip(), desde, reglas, topes, usuario)
+            with transaction.atomic():
+                nuevo = publicar_version(vigente, version.strip(), desde, reglas, topes, usuario)
+                recalculados = recalcular_en_analisis(nuevo)
         except IntegrityError:
             raise serializers.ValidationError({"version": ["Ya existe una versión con ese nombre."]})
-        auditoria.registrar(usuario, accion, f"conjunto:{nuevo.pk}", detalle={"version": nuevo.version, "basada_en": vigente.version})
+        auditoria.registrar(
+            usuario, accion, f"conjunto:{nuevo.pk}",
+            detalle={"version": nuevo.version, "basada_en": vigente.version, "casos_recalculados": [e.siniestro_id for e in recalculados]},
+        )
         return Response(conjunto_json(nuevo), status=201)

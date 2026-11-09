@@ -93,7 +93,11 @@ def siniestro_json(siniestro, usuario):
 
 
 def cierre_json(cierre):
+    """Cierre del contrato. Con su respaldo: solo se arma para el perito responsable del expediente."""
     from .coincidencias import valoracion_texto
+    from .models import Documento
+
+    documentos = {d["id"]: d for d in Documento.objects.filter(pk__in=cierre.documentos_respaldo).values("id", "tipo", "nombre_original")}
 
     return {
         "id": cierre.id,
@@ -104,6 +108,8 @@ def cierre_json(cierre):
         "valoracion_texto": valoracion_texto(cierre.valoracion),
         "justificacion": cierre.justificacion,
         "motivo_cambio": cierre.motivo_cambio,
+        "documentos_respaldo": [documentos[pk] for pk in cierre.documentos_respaldo if pk in documentos],
+        "observacion_respaldo": cierre.observacion_respaldo,
         "creado_en": cierre.creado_en,
         "perito": persona_simple(cierre.perito),
     }

@@ -125,6 +125,9 @@ export interface Cierre {
   valoracion_texto: string;
   justificacion: string;
   motivo_cambio: string;
+  /** Respaldo de la irregularidad: solo lo ve el perito responsable, nunca el resumen de otros peritos. */
+  documentos_respaldo: { id: number; tipo: string; nombre_original: string }[];
+  observacion_respaldo: string;
   creado_en: string;
   perito: { id: number; nombre: string };
 }

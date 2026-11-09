@@ -151,8 +151,11 @@ class _Caso:
             bienes = [b for b in a["bienes"] if b in bienes_caso]
             if not personas and not bienes:
                 continue
+            fecha = _fecha(a["fecha_hecho"])
+            if fecha >= self.hecho:
+                continue  # solo cuenta un antecedente anterior al hecho (también para R07, que no tiene ventana)
             copia = dict(a, personas=personas, bienes=bienes)
-            copia["fecha"] = _fecha(a["fecha_hecho"])
+            copia["fecha"] = fecha
             self.antecedentes.append(copia)
 
     def en_ventana(self, antecedente, meses):
@@ -237,24 +240,42 @@ def _r02(caso, regla):
 
 
 def _r03(caso, regla):
+    """Persona recurrente: se cuenta por persona y gana el nivel más alto entre las personas del caso."""
     p = regla["parametros"]
     meses = p["ventana_meses"]
-    previos = [a for a in _con_personas(caso) if caso.en_ventana(a, meses)]
-    puntos = 0
-    for nivel in sorted(p["niveles"], key=lambda n: -n["min_antecedentes"]):
-        if len(previos) >= nivel["min_antecedentes"]:
-            puntos = nivel["puntos"]
-            break
-    dato = {"cantidad": len(previos), "ventana_meses": meses}
-    if not previos:
+    niveles = sorted(p["niveles"], key=lambda n: -n["min_antecedentes"])
+
+    def puntos_de(cantidad):
+        return next((n["puntos"] for n in niveles if cantidad >= n["min_antecedentes"]), 0)
+
+    por_persona = {}  # (tipo, identificador) -> {"nombre", "antecedentes": [antecedente]}
+    for a in _con_personas(caso):
+        if not caso.en_ventana(a, meses):
+            continue
+        for d in a["personas"]:
+            clave = (d["tipo_identificador"], d["identificador"])
+            entrada = por_persona.setdefault(clave, {"nombre": d["nombre"], "antecedentes": []})
+            entrada["antecedentes"].append(a)
+    mejor = max((puntos_de(len(e["antecedentes"])) for e in por_persona.values()), default=0)
+    usadas = [e for e in por_persona.values() if mejor and puntos_de(len(e["antecedentes"])) == mejor]
+    dato = {
+        "cantidad": max((len(e["antecedentes"]) for e in usadas), default=0),
+        "ventana_meses": meses,
+        "personas": [{"nombre": e["nombre"], "cantidad": len(e["antecedentes"])} for e in usadas],
+    }
+    if not usadas:
         sujeto = f"{caso.nombres_personas} no tiene" if len(caso.personas) == 1 else "Ninguna persona del caso tiene"
         return _resultado(regla, "no_activada", 0, f"{sujeto} otros siniestros válidos en los últimos {meses} meses.", dato)
-    nombres = unir(d["nombre"] for a in previos for d in a["personas"])
-    numeros = ", ".join(a["numero_expediente"] for a in previos)
-    cantidad = "en 1 siniestro válido" if len(previos) == 1 else f"en {len(previos)} siniestros válidos"
-    texto = f"{nombres} figura {cantidad} de los últimos {meses} meses: {numeros}."
-    items = [_item(a, "Persona " + unir(d["nombre"] for d in a["personas"])) for a in previos]
-    return _resultado(regla, "activada", puntos, texto, dato, items)
+    frases = []
+    items = {}
+    for e in usadas:
+        cantidad = "en 1 siniestro válido" if len(e["antecedentes"]) == 1 else f"en {len(e['antecedentes'])} siniestros válidos"
+        numeros = ", ".join(a["numero_expediente"] for a in e["antecedentes"])
+        frases.append(f"{e['nombre']} figura {cantidad} de los últimos {meses} meses: {numeros}.")
+        for a in e["antecedentes"]:
+            items.setdefault(a["id"], (a, []))[1].append(e["nombre"])
+    lista = [_item(a, "Persona " + unir(nombres)) for a, nombres in sorted(items.values(), key=lambda x: x[0]["id"])]
+    return _resultado(regla, "activada", mejor, " ".join(frases), dato, lista)
 
 
 def _r04(caso, regla):
@@ -444,9 +465,19 @@ def guardar_evaluacion(siniestro, motivo, conjunto=None, entradas=None, creada_e
     return evaluacion
 
 
-def recalcular_vinculados(siniestro):
-    """Al confirmarse `siniestro`, recalcula los casos `en_analisis` que comparten una persona o un bien (de cualquier espacio)."""
-    return [guardar_evaluacion(caso, "antecedente_confirmado") for caso in casos_en_analisis_vinculados(siniestro)]
+def recalcular_vinculados(siniestro, motivo="antecedente_confirmado"):
+    """Recalcula los casos `en_analisis` (de cualquier espacio) a los que `siniestro` les cuenta como antecedente.
+
+    Se llama al confirmar, cerrar (o cambiar el cierre), archivar o anular `siniestro`; `motivo` dice cuál fue.
+    Cada caso afectado recibe una evaluación nueva y las anteriores no se tocan.
+    """
+    return [guardar_evaluacion(caso, motivo) for caso in casos_en_analisis_vinculados(siniestro)]
+
+
+def recalcular_en_analisis(conjunto):
+    """Al publicar una versión nueva de reglas: una evaluación nueva, con esa versión, de todos los casos `en_analisis`."""
+    casos = Siniestro.objects.filter(estado=Siniestro.EN_ANALISIS, confirmado_en__isnull=False).order_by("id")
+    return [guardar_evaluacion(caso, "nueva_version", conjunto=conjunto) for caso in casos]
 
 
 def resultado_de_evaluacion(evaluacion):

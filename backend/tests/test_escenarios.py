@@ -137,14 +137,17 @@ def test_hu12_una_version_nueva_no_altera_las_evaluaciones_viejas(superadmin):
     assert respuesta.status_code == 201, respuesta.content
     assert respuesta.json()["version"] == "RS-1.1" and respuesta.json()["activo"] is True
 
-    # la evaluación vieja conserva su versión, su puntaje y sus señales
-    _, _, despues = _evaluacion_por_api("R08-A")
-    assert despues["id"] == antes["id"] and despues["version"] == "RS-1.0" and despues["puntaje"] == 10
+    # la evaluación vieja conserva su versión, su puntaje y sus señales (publicar recalcula el caso en una evaluación nueva: S17)
+    vieja = Evaluacion.objects.get(pk=antes["id"])
+    assert vieja.conjunto.version == "RS-1.0" and vieja.puntaje == 10
     assert list(Senal.objects.filter(evaluacion_id=antes["id"]).values_list("id", "regla_id", "estado", "puntos")) == senales_antes
 
-    # recalcular usa la versión vigente: con plazo de 10 días la denuncia a 5 días ya no es tardía
-    nueva = cliente_de(perito).post(f"/api/siniestros/{caso.id}/recalcular").json()
+    # el recálculo automático usa la versión nueva: con plazo de 10 días la denuncia a 5 días ya no es tardía
+    _, _, nueva = _evaluacion_por_api("R08-A")
+    assert nueva["id"] != antes["id"] and nueva["motivo"] == "nueva_version"
     assert nueva["version"] == "RS-1.1" and nueva["puntaje"] == 0
+    # recalcular a mano sigue funcionando y usa la versión vigente
+    assert cliente_de(perito).post(f"/api/siniestros/{caso.id}/recalcular").json()["version"] == "RS-1.1"
     # y la evaluación vieja sigue siendo reproducible con su versión original
     original = ConjuntoReglas.objects.get(version="RS-1.0")
     assert evaluar(antes["entradas"], conjunto_a_dict(original))["puntaje"] == 10

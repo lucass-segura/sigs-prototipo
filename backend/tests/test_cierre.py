@@ -1,5 +1,8 @@
 """T10 · HU-13, HU-14 y pruebas funcionales F1–F4: cierre con valoración, archivo y anulación."""
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 
 from nucleo.fabrica import crear_siniestro
 from nucleo.models import Auditoria, Cierre, Siniestro
@@ -34,7 +37,7 @@ def test_hu13_cerrar_guarda_el_cierre_y_pasa_el_caso_a_cerrado(caso):
     respuesta = cerrar(cliente, id_)
     assert respuesta.status_code == 201, respuesta.content
     cierre = respuesta.json()
-    assert cierre["valoracion"] == 8 and cierre["valoracion_texto"] == "Verificado con observaciones menores"
+    assert cierre["valoracion"] == 8 and cierre["valoracion_texto"] == "El hecho se verificó con observaciones menores o documentación incompleta."
     assert cierre["perito"]["nombre"] == "PE-08"
     assert cliente.get(f"/api/siniestros/{id_}").json()["estado"] == "cerrado"
     assert cliente.get(f"/api/siniestros/{id_}").json()["cierre_vigente"]["id"] == cierre["id"]
@@ -42,7 +45,7 @@ def test_hu13_cerrar_guarda_el_cierre_y_pasa_el_caso_a_cerrado(caso):
 
 def test_hu13_el_resultado_del_reclamo_y_la_irregularidad_son_datos_separados(caso):
     cliente, id_ = caso
-    cierre = cerrar(cliente, id_, resultado_reclamo="rechazado", irregularidad=True).json()
+    cierre = cerrar(cliente, id_, resultado_reclamo="rechazado", irregularidad=True, observacion_respaldo="Cédula adulterada.").json()
     assert cierre["resultado_reclamo"] == "rechazado" and cierre["irregularidad"] is True
     otro = Cierre.objects.get(pk=cierre["id"])
     assert (otro.resultado_reclamo, otro.irregularidad) == ("rechazado", True)
@@ -192,7 +195,7 @@ def test_f1_archivar_un_expediente_conserva_su_auditoria(perito08, admin_norte):
 def test_f2_una_carga_erronea_no_aparece_como_antecedente(perito08, perito11):
     c08 = cliente_de(perito08)
     erroneo = crear_siniestro(perito08, "EXP-ERRONEO", personas=[], bienes=["AC904KL"])
-    valido = crear_siniestro(perito11, "EXP-VALIDO", personas=[], bienes=["AC904KL"])
+    valido = crear_siniestro(perito11, "EXP-VALIDO", personas=[], bienes=["AC904KL"], fecha_hecho=timezone.now() - timedelta(days=5))
     mio = crear_siniestro(perito08, "EXP-MIO", personas=[], bienes=["AC904KL"])
     c08.post(f"/api/siniestros/{erroneo.pk}/anular", {"motivo": "Carga errónea"}, format="json")
     resultados = c08.get(f"/api/siniestros/{mio.pk}/coincidencias").json()["resultados"]

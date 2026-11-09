@@ -26,8 +26,8 @@ def _persona(identificador, nombre, *roles):
     return {"tipo_identificador": "DNI", "identificador": identificador, "nombre": nombre, "roles": list(roles)}
 
 
-def _poliza(numero, vigencia, pago):
-    return {"numero": numero, "compania": "Aseguradora Ejemplo S. A.", "cobertura": "Todo riesgo", "inicio_vigencia": vigencia, "primer_pago": pago}
+def _poliza(numero, vigencia, pago, cobertura="Todo riesgo"):
+    return {"numero": numero, "compania": "Aseguradora Ejemplo S. A.", "cobertura": cobertura, "inicio_vigencia": vigencia, "primer_pago": pago}
 
 
 def hay_demo():
@@ -52,9 +52,10 @@ def _usuarios():
     }
 
 
-def _cierre(resultado, valoracion, justificacion, creado_en, irregularidad=False, conclusion=""):
+def _cierre(resultado, valoracion, justificacion, creado_en, conclusion, irregularidad=False, observacion_respaldo=""):
     return {"resultado_reclamo": resultado, "irregularidad": irregularidad, "valoracion": valoracion,
-            "justificacion": justificacion, "conclusion": conclusion, "creado_en": creado_en}
+            "justificacion": justificacion, "conclusion": conclusion, "creado_en": creado_en,
+            "observacion_respaldo": observacion_respaldo}
 
 
 def _guardar_documento(caso, perito):
@@ -110,14 +111,15 @@ def cargar_demo():
 
     p17 = _persona("30111017", "P-17", "asegurado", "conductor")
 
-    # Incendio total (Norte, PE-08): R01 25, R02 20 y R06 25 → 55, alta
+    # Incendio total (Norte, PE-08): R01 25, R02 20 y R06 25 → 55, alta. Los datos son los del Anexo 1 del Entregable 4.
     exp_0147 = caso(
-        "pe08", "EXP-2026-0147", tipo="Incendio total", fecha_hecho=_momento(2026, 8, 12, 23, 40), fecha_denuncia=date(2026, 8, 14),
-        lugar="Vía pública, Neuquén", relato="El asegurado informa que el vehículo se incendió estacionado en la vía pública. (Relato ficticio.)",
-        poliza=_poliza("AUT-000123", date(2026, 7, 20), date(2026, 8, 4)), personas=[p17],
-        bienes=[{"tipo": "vehiculo", "identificador": "AB123CD", "descripcion": "Automóvil sedán (ficticio)",
-                 "detalle_dano": "Habitáculo y motor quemados por completo.",
-                 "atributos": {"motor": "MTR-4471-X", "chasis": "CHS-98213-K", "marca": "Marca Ejemplo"}}],
+        "pe08", "EXP-2026-0147", tipo="Incendio total del vehículo", fecha_hecho=_momento(2026, 8, 12, 23, 40), fecha_denuncia=date(2026, 8, 14),
+        lugar="Vía pública, frente al domicilio del asegurado, Neuquén",
+        relato="El vehículo estaba estacionado frente al domicilio. Un vecino avisó que salía humo del motor y el asegurado llamó a bomberos.",
+        poliza=_poliza("AUT-000123", date(2026, 7, 20), date(2026, 8, 4), cobertura="Terceros completo con incendio total"), personas=[p17],
+        bienes=[{"tipo": "vehiculo", "identificador": "AB123CD", "descripcion": "Sedán modelo 2015",
+                 "detalle_dano": "Combustión total del habitáculo y del motor.",
+                 "atributos": {"motor": "MTR-55821", "chasis": "CHS-90311"}}],
         confirmado_en=_momento(2026, 8, 18, 10, 42),
     )
     _seguimiento_del_caso_0147(exp_0147, u["pe08"])
@@ -130,7 +132,7 @@ def cargar_demo():
         bienes=[{"tipo": "vehiculo", "identificador": "AB123CD", "descripcion": "Automóvil sedán (ficticio)", "detalle_dano": "Faltan ópticas y llantas."}],
         estado=Siniestro.CERRADO, confirmado_en=_momento(2025, 7, 12, 9, 0),
         cierre=_cierre("aprobado", 7, "Faltó la denuncia policial original. El resto de la documentación coincide.",
-                       _momento(2025, 8, 20, 12), conclusion="Hecho verificado con observaciones menores."),
+                       _momento(2025, 8, 20, 12), "Hecho verificado con observaciones menores."),
     )
 
     # Robo de rueda de auxilio: el mismo dominio repetido en los dos espacios
@@ -141,12 +143,14 @@ def cargar_demo():
     caso("pe15", "S-2025-0410", tipo="Robo de rueda de auxilio", fecha_hecho=_momento(2025, 11, 20, 19, 0), fecha_denuncia=date(2025, 11, 21),
          poliza=_poliza("AUT-000772", date(2024, 6, 1), date(2024, 6, 3)), personas=[_persona("29555041", "P-41", "asegurado")],
          bienes=[{"tipo": "vehiculo", "identificador": "AD555RR", "detalle_dano": "Rueda de auxilio sustraída."}],
-         estado=Siniestro.CERRADO, cierre=_cierre("aprobado", 8, "Documentación completa y denuncia policial coincidente.", _momento(2025, 12, 15, 12)))
+         estado=Siniestro.CERRADO, cierre=_cierre("aprobado", 8, "Documentación completa y denuncia policial coincidente.", _momento(2025, 12, 15, 12),
+                       "Hecho verificado sin observaciones."))
     caso("pe15", "S-2026-0030", tipo="Robo de rueda de auxilio", fecha_hecho=_momento(2026, 3, 15, 21, 15), fecha_denuncia=date(2026, 3, 16),
          poliza=_poliza("AUT-000773", date(2024, 6, 1), date(2024, 6, 3)), personas=[_persona("30666042", "P-42", "asegurado")],
          bienes=[{"tipo": "vehiculo", "identificador": "AD555RR", "detalle_dano": "Rueda de auxilio sustraída."}],
          estado=Siniestro.CERRADO,
-         cierre=_cierre("desistido", 5, "El asegurado desistió antes de presentar la denuncia policial.", _momento(2026, 4, 10, 12)))
+         cierre=_cierre("desistido", 5, "El asegurado desistió antes de presentar la denuncia policial.", _momento(2026, 4, 10, 12),
+                       "El asegurado desistió del reclamo y el hecho quedó sin verificar."))
     caso("pe11", "EXP-2026-0098", tipo="Robo de rueda de auxilio", fecha_hecho=_momento(2026, 7, 2, 7, 45), fecha_denuncia=date(2026, 7, 3),
          poliza=_poliza("AUT-000774", date(2025, 2, 1), date(2025, 2, 3)), personas=[_persona("31777043", "P-43", "asegurado")],
          bienes=[{"tipo": "vehiculo", "identificador": "AD555RR", "detalle_dano": "Rueda de auxilio sustraída."}])
@@ -160,7 +164,8 @@ def cargar_demo():
          poliza=_poliza("AUT-000201", date(2023, 1, 1), date(2023, 1, 3)), personas=[_persona("27333031", "P-31", "asegurado")],
          bienes=[{"tipo": "vehiculo", "identificador": "AE777ZZ"}], estado=Siniestro.CERRADO,
          cierre=_cierre("rechazado", 2, "Se confirmó la adulteración de la documentación presentada.", _momento(2024, 5, 20, 12),
-                        irregularidad=True, conclusion="Irregularidad confirmada."))
+                        irregularidad=True, conclusion="Irregularidad confirmada.",
+                        observacion_respaldo="La cédula presentada no coincide con el registro del vehículo. Lo constaté en la inspección."))
 
     # Anulado por carga errónea: comparte el vehículo con EXP-2026-0139 y no tiene que aparecer como antecedente
     caso("pe11", "EXP-2026-0120", tipo="Choque en calle", fecha_hecho=_momento(2026, 6, 20, 10, 0), fecha_denuncia=date(2026, 6, 21),
@@ -175,11 +180,13 @@ def cargar_demo():
     caso("pe08", "EXP-2026-0122", tipo="Daño por granizo", fecha_hecho=_momento(2026, 7, 18, 16, 0), fecha_denuncia=date(2026, 7, 19),
          poliza=_poliza("AUT-000615", date(2025, 3, 1), date(2025, 3, 3)), personas=[_persona("34100046", "P-46", "asegurado")],
          bienes=[{"tipo": "vehiculo", "identificador": "AD331PQ"}], estado=Siniestro.CERRADO,
-         cierre=_cierre("aprobado", 6, "Daños consistentes con el evento climático informado.", _momento(2026, 8, 10, 12)))
+         cierre=_cierre("aprobado", 6, "Daños consistentes con el evento climático informado.", _momento(2026, 8, 10, 12),
+                       "Hay dudas sobre la fecha del evento. El resto es consistente."))
     caso("pe08", "EXP-2026-0117", tipo="Robo de notebook", fecha_hecho=_momento(2026, 7, 10, 13, 0), fecha_denuncia=date(2026, 7, 11),
          poliza=_poliza("EQP-000044", date(2025, 5, 1), date(2025, 5, 3)), personas=[_persona("35200047", "P-47", "asegurado")],
          bienes=[{"tipo": "computadora", "identificador": "SN-8F09X2", "descripcion": "Notebook (ficticia)"}], estado=Siniestro.CERRADO,
-         cierre=_cierre("aprobado", 8, "Denuncia y factura coinciden con el relato.", _momento(2026, 8, 5, 12)))
+         cierre=_cierre("aprobado", 8, "Denuncia y factura coinciden con el relato.", _momento(2026, 8, 5, 12),
+                       "Hecho verificado con observaciones menores."))
     caso("pe08", "EXP-2026-0158", tipo="Robo en comercio", fecha_hecho=_momento(2026, 8, 21, 22, 0), fecha_denuncia=date(2026, 8, 22),
          poliza=_poliza("COM-000090", date(2025, 6, 1), date(2025, 6, 3)), personas=[_persona("36300048", "P-48", "asegurado")],
          bienes=[{"tipo": "otro", "identificador": "Local 12", "descripcion": "Local comercial (ficticio)"}], estado=Siniestro.BORRADOR)

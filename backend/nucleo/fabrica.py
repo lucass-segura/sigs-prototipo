@@ -26,7 +26,8 @@ def crear_siniestro(
 
     - personas: `[{"tipo_identificador", "identificador", "nombre", "roles": [...]}]`
     - bienes: `[{"tipo", "identificador", "descripcion", "detalle_dano", "atributos"}]` o identificadores sueltos.
-    - cierre: `{"resultado_reclamo", "irregularidad", "conclusion", "valoracion", "justificacion", "creado_en"}`.
+    - cierre: `{"resultado_reclamo", "irregularidad", "conclusion", "valoracion", "justificacion", "creado_en",
+      "documentos_respaldo", "observacion_respaldo"}`. La fábrica no valida: la regla del respaldo es de la API.
     """
     fecha_hecho = fecha_hecho or timezone.now()
     if estado != Siniestro.BORRADOR and confirmado_en is None:
@@ -53,10 +54,12 @@ def crear_siniestro(
 
 
 def crear_cierre(siniestro, perito, *, resultado_reclamo="aprobado", irregularidad=False, conclusion="", valoracion=7,
-                 justificacion="Justificación de prueba.", creado_en=None, motivo_cambio=""):
+                 justificacion="Justificación de prueba.", creado_en=None, motivo_cambio="", documentos_respaldo=(),
+                 observacion_respaldo=""):
     datos = dict(
         siniestro=siniestro, perito=perito, resultado_reclamo=resultado_reclamo, irregularidad=irregularidad,
         conclusion=conclusion, valoracion=valoracion, justificacion=justificacion, motivo_cambio=motivo_cambio,
+        documentos_respaldo=list(documentos_respaldo), observacion_respaldo=observacion_respaldo,
     )
     if creado_en is not None:
         datos["creado_en"] = creado_en

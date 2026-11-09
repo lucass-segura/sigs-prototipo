@@ -3,10 +3,11 @@ import io
 
 import pytest
 from django.core.management import call_command
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from nucleo.constantes import CLAVE_DEMO
-from nucleo.models import Siniestro, Usuario
+from nucleo.models import Cierre, Siniestro, Usuario
 from tests.conftest import cliente_de
 
 pytestmark = pytest.mark.django_db
@@ -155,3 +156,31 @@ def test_la_demo_cumple_la_politica_de_contrasena():
     from django.contrib.auth.password_validation import validate_password
 
     validate_password(CLAVE_DEMO)
+
+
+def test_s21_exp_2026_0147_respeta_el_anexo_1_del_entregable_4(demo):
+    caso = siniestro("EXP-2026-0147")
+    cuerpo = cliente_de(caso.perito).get(f"/api/siniestros/{caso.id}").json()
+    assert cuerpo["estado"] == "en_analisis"  # sigue abierto para poder recorrer el cierre
+    assert cuerpo["tipo"] == "Incendio total del vehículo"
+    assert cuerpo["lugar"] == "Vía pública, frente al domicilio del asegurado, Neuquén"
+    assert cuerpo["relato"] == (
+        "El vehículo estaba estacionado frente al domicilio. Un vecino avisó que salía humo del motor y el asegurado llamó a bomberos."
+    )
+    assert timezone.localtime(caso.fecha_hecho).strftime("%d/%m/%Y %H:%M") == "12/08/2026 23:40"
+    assert cuerpo["fecha_denuncia"] == "2026-08-14"
+    poliza = cuerpo["poliza"]
+    assert (poliza["numero"], poliza["compania"], poliza["cobertura"]) == (
+        "AUT-000123", "Aseguradora Ejemplo S. A.", "Terceros completo con incendio total")
+    assert (poliza["inicio_vigencia"], poliza["primer_pago"]) == ("2026-07-20", "2026-08-04")
+    (bien,) = cuerpo["bienes"]
+    assert (bien["tipo"], bien["identificador_norm"], bien["descripcion"]) == ("vehiculo", "AB123CD", "Sedán modelo 2015")
+    assert bien["atributos"] == {"motor": "MTR-55821", "chasis": "CHS-90311"}
+    (persona,) = cuerpo["personas"]
+    assert persona["nombre"] == "P-17" and sorted(persona["roles"]) == ["asegurado", "conductor"]
+
+
+def test_s21_el_cierre_de_la_demo_con_irregularidad_trae_su_respaldo(demo):
+    cierre = siniestro("S-2024-0207").cierres.get()
+    assert cierre.irregularidad is True and cierre.observacion_respaldo and cierre.conclusion
+    assert all(c.conclusion.strip() for c in Cierre.objects.all())

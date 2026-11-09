@@ -12,15 +12,8 @@ from rest_framework.views import APIView
 
 from .. import auditoria
 from ..models import Documento, Nota, Tarea, TareaCambio, Usuario
-from ..permisos import exigir_responsable, no_encontrado, prohibido, siniestro_del_espacio
+from ..permisos import exigir_perito, no_encontrado, prohibido, siniestro_asignado
 from ..serializadores import persona_simple
-
-
-def _del_responsable(solicitud, pk, accion):
-    """Siniestro del espacio (404 si no) y exige ser el perito responsable (403 si no)."""
-    siniestro = siniestro_del_espacio(solicitud, pk, accion)
-    exigir_responsable(solicitud, siniestro, accion)
-    return siniestro
 
 
 # --------------------------------------------------------------------------
@@ -39,11 +32,11 @@ def documento_json(documento):
 
 class Documentos(APIView):
     def get(self, solicitud, pk):
-        siniestro = _del_responsable(solicitud, pk, "listar_documentos")
+        siniestro = siniestro_asignado(solicitud, pk, "listar_documentos")
         return Response([documento_json(d) for d in siniestro.documentos.order_by("-recibido_en", "-id")])
 
     def post(self, solicitud, pk):
-        siniestro = _del_responsable(solicitud, pk, "subir_documento")
+        siniestro = siniestro_asignado(solicitud, pk, "subir_documento")
         tipo = str(solicitud.data.get("tipo", "")).strip()
         archivo = solicitud.FILES.get("archivo")
         errores = {}
@@ -83,7 +76,6 @@ class DescargarDocumento(APIView):
         if (
             documento is None
             or usuario.rol != Usuario.PERITO
-            or documento.siniestro.espacio_id != usuario.espacio_id
             or documento.siniestro.perito_id != usuario.id
         ):
             raise no_encontrado("No se encontró el documento.", accion, f"documento:{pk}")
@@ -113,11 +105,11 @@ class NotaEntrada(serializers.Serializer):
 
 class Notas(APIView):
     def get(self, solicitud, pk):
-        siniestro = _del_responsable(solicitud, pk, "listar_notas")
+        siniestro = siniestro_asignado(solicitud, pk, "listar_notas")
         return Response([nota_json(n) for n in siniestro.notas.select_related("autor").order_by("-creada_en", "-id")])
 
     def post(self, solicitud, pk):
-        siniestro = _del_responsable(solicitud, pk, "crear_nota")
+        siniestro = siniestro_asignado(solicitud, pk, "crear_nota")
         entrada = NotaEntrada(data=solicitud.data)
         entrada.is_valid(raise_exception=True)
         nota = Nota.objects.create(siniestro=siniestro, autor=solicitud.user, texto=entrada.validated_data["texto"].strip())
@@ -160,11 +152,11 @@ class CambioEstadoEntrada(serializers.Serializer):
 
 class Tareas(APIView):
     def get(self, solicitud, pk):
-        siniestro = _del_responsable(solicitud, pk, "listar_tareas")
+        siniestro = siniestro_asignado(solicitud, pk, "listar_tareas")
         return Response([tarea_json(t) for t in siniestro.tareas.order_by("id")])
 
     def post(self, solicitud, pk):
-        siniestro = _del_responsable(solicitud, pk, "crear_tarea")
+        siniestro = siniestro_asignado(solicitud, pk, "crear_tarea")
         entrada = TareaEntrada(data=solicitud.data)
         entrada.is_valid(raise_exception=True)
         tarea = Tarea.objects.create(siniestro=siniestro, estado=Tarea.PENDIENTE, **entrada.validated_data)
@@ -179,9 +171,8 @@ class DetalleTarea(APIView):
         if usuario.rol != Usuario.PERITO:
             raise prohibido("Solo un perito puede acceder a los expedientes.", accion, f"tarea:{pk}")
         tarea = Tarea.objects.select_related("siniestro").filter(pk=pk).first()
-        if tarea is None or tarea.siniestro.espacio_id != usuario.espacio_id:
+        if tarea is None or tarea.siniestro.perito_id != usuario.id:
             raise no_encontrado("No se encontró la tarea.", accion, f"tarea:{pk}")
-        exigir_responsable(solicitud, tarea.siniestro, accion)
         entrada = CambioEstadoEntrada(data=solicitud.data)
         entrada.is_valid(raise_exception=True)
         nuevo = entrada.validated_data["estado"]
@@ -199,8 +190,6 @@ class MisTareas(APIView):
     """Tareas no hechas de los expedientes propios."""
 
     def get(self, solicitud):
-        from ..permisos import exigir_perito
-
         usuario = exigir_perito(solicitud, "listar_tareas")
         tareas = (
             Tarea.objects.filter(siniestro__perito=usuario).exclude(estado=Tarea.HECHA)

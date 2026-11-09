@@ -23,13 +23,13 @@ from ..motor import guardar_evaluacion, recalcular_vinculados, resultado_de_eval
 from ..permisos import (
     exigir_confirmado,
     exigir_perito,
-    exigir_responsable,
     no_encontrado,
-    siniestro_del_espacio,
+    siniestro_asignado,
 )
 from ..resumen import construir_resumen
 from ..serializadores import siniestro_json
 
+MENSAJE_HECHO_ANTES_DE_VIGENCIA = "La fecha del hecho no puede ser anterior al inicio de vigencia de la póliza."
 MENSAJE_CONFIRMAR = "Para confirmar hacen falta la póliza, la fecha del hecho y al menos una persona o un bien."
 PRIORIDAD_ORDEN = {"alta": 0, "media": 1, "baja": 2}
 
@@ -114,6 +114,15 @@ def _requisitos_de_confirmacion(poliza, hay_personas_o_bienes):
         raise serializers.ValidationError({"detalle": MENSAJE_CONFIRMAR})
 
 
+def _validar_hecho_dentro_de_vigencia(fecha_hecho, inicio_vigencia):
+    """Un hecho anterior al inicio de vigencia no es un siniestro (S22). Sin inicio de vigencia no se controla.
+
+    Se compara la fecha local del hecho: el mismo día del inicio de vigencia se acepta.
+    """
+    if fecha_hecho is not None and inicio_vigencia is not None and fecha_local(fecha_hecho) < inicio_vigencia:
+        raise serializers.ValidationError({"fecha_hecho": [MENSAJE_HECHO_ANTES_DE_VIGENCIA]})
+
+
 # --------------------------------------------------------------------------
 # Panel y alta
 # --------------------------------------------------------------------------
@@ -168,6 +177,7 @@ class Siniestros(APIView):
     def post(self, solicitud):
         usuario = exigir_perito(solicitud, "crear_siniestro")
         datos = _validar_entrada(solicitud, parcial=False)
+        _validar_hecho_dentro_de_vigencia(datos["fecha_hecho"], (datos.get("poliza") or {}).get("inicio_vigencia"))
         confirmar = datos.pop("confirmar", False)
         if confirmar:
             _requisitos_de_confirmacion(datos.get("poliza"), bool(datos.get("personas") or datos.get("bienes")))
@@ -207,17 +217,20 @@ def _confirmar(usuario, siniestro):
 # --------------------------------------------------------------------------
 class DetalleSiniestro(APIView):
     def get(self, solicitud, pk):
-        siniestro = siniestro_del_espacio(solicitud, pk, "ver_expediente")
+        siniestro = siniestro_asignado(solicitud, pk, "ver_expediente")
         auditoria.registrar(solicitud.user, "ver_expediente", f"siniestro:{siniestro.pk}", siniestro_origen=siniestro)
         return Response(siniestro_json(siniestro, solicitud.user))
 
     def patch(self, solicitud, pk):
-        siniestro = siniestro_del_espacio(solicitud, pk, "modificar_siniestro")
-        exigir_responsable(solicitud, siniestro, "modificar_siniestro")
+        siniestro = siniestro_asignado(solicitud, pk, "modificar_siniestro")
         if siniestro.estado != Siniestro.BORRADOR:
             raise serializers.ValidationError({"detalle": "Solo un borrador se puede editar."})
         datos = _validar_entrada(solicitud, parcial=True)
         datos.pop("confirmar", None)
+        # valores que quedarían guardados: lo que llega o, si no llega, lo que ya tiene el borrador
+        inicio_vigencia = datos["poliza"].get("inicio_vigencia") if datos.get("poliza") else (
+            siniestro.poliza.inicio_vigencia if siniestro.poliza else None)
+        _validar_hecho_dentro_de_vigencia(datos.get("fecha_hecho", siniestro.fecha_hecho), inicio_vigencia)
         numero = (datos.pop("numero_expediente", None) or "").strip()
         if numero and numero != siniestro.numero_expediente:
             if Siniestro.objects.filter(numero_expediente=numero).exists():
@@ -241,12 +254,12 @@ class DetalleSiniestro(APIView):
 
 class Confirmar(APIView):
     def post(self, solicitud, pk):
-        siniestro = siniestro_del_espacio(solicitud, pk, "confirmar_siniestro")
-        exigir_responsable(solicitud, siniestro, "confirmar_siniestro")
+        siniestro = siniestro_asignado(solicitud, pk, "confirmar_siniestro")
         if siniestro.estado != Siniestro.BORRADOR:
             raise serializers.ValidationError({"detalle": "Solo un borrador se puede confirmar."})
         hay_vinculos = Participacion.objects.filter(siniestro=siniestro).exists() or BienAfectado.objects.filter(siniestro=siniestro).exists()
         _requisitos_de_confirmacion(siniestro.poliza, hay_vinculos)
+        _validar_hecho_dentro_de_vigencia(siniestro.fecha_hecho, siniestro.poliza.inicio_vigencia)
         with transaction.atomic():
             _confirmar(solicitud.user, siniestro)
         siniestro.refresh_from_db()
@@ -258,7 +271,7 @@ class Confirmar(APIView):
 # --------------------------------------------------------------------------
 class UltimaEvaluacion(APIView):
     def get(self, solicitud, pk):
-        siniestro = siniestro_del_espacio(solicitud, pk, "ver_evaluacion")
+        siniestro = siniestro_asignado(solicitud, pk, "ver_evaluacion")
         exigir_confirmado(solicitud, siniestro, "ver_evaluacion")
         evaluacion = siniestro.evaluaciones.select_related("conjunto").order_by("-creada_en", "-id").first()
         if evaluacion is None:
@@ -268,7 +281,7 @@ class UltimaEvaluacion(APIView):
 
 class Evaluaciones(APIView):
     def get(self, solicitud, pk):
-        siniestro = siniestro_del_espacio(solicitud, pk, "ver_evaluaciones")
+        siniestro = siniestro_asignado(solicitud, pk, "ver_evaluaciones")
         exigir_confirmado(solicitud, siniestro, "ver_evaluaciones")
         evaluaciones = siniestro.evaluaciones.select_related("conjunto").order_by("-creada_en", "-id")
         return Response([
@@ -280,8 +293,7 @@ class Evaluaciones(APIView):
 
 class Recalcular(APIView):
     def post(self, solicitud, pk):
-        siniestro = siniestro_del_espacio(solicitud, pk, "recalcular")
-        exigir_responsable(solicitud, siniestro, "recalcular")
+        siniestro = siniestro_asignado(solicitud, pk, "recalcular")
         exigir_confirmado(solicitud, siniestro, "recalcular")
         evaluacion = guardar_evaluacion(siniestro, "recalculo")
         auditoria.registrar(solicitud.user, "recalcular", f"siniestro:{siniestro.pk}", siniestro_origen=siniestro,
@@ -291,7 +303,7 @@ class Recalcular(APIView):
 
 class Coincidencias(APIView):
     def get(self, solicitud, pk):
-        siniestro = siniestro_del_espacio(solicitud, pk, "ver_coincidencias")
+        siniestro = siniestro_asignado(solicitud, pk, "ver_coincidencias")
         exigir_confirmado(solicitud, siniestro, "ver_coincidencias")
         try:
             pagina = int(solicitud.query_params.get("pagina", 1))
@@ -306,7 +318,7 @@ class Coincidencias(APIView):
 class ResumenAntecedente(APIView):
     def get(self, solicitud, pk, antecedente_pk):
         accion = "ver_resumen_antecedente"
-        origen = siniestro_del_espacio(solicitud, pk, accion)
+        origen = siniestro_asignado(solicitud, pk, accion)
         exigir_confirmado(solicitud, origen, accion)
         resumen = construir_resumen(origen, antecedente_pk)
         if resumen is None:
