@@ -3,10 +3,9 @@
 No hay buscador de personas: crear un borrador solo con un DNI o una patente no puede devolver lo que
 otro espacio escribió en su expediente.
 """
-from datetime import timedelta
+from datetime import datetime, timezone as utc
 
 import pytest
-from django.utils import timezone
 
 from nucleo.fabrica import crear_siniestro
 from nucleo.models import Bien, BienAfectado, Participacion, Persona
@@ -24,13 +23,14 @@ BIEN_SUR = {
     "detalle_dano": "Detalle secreto del Sur", "atributos": {"motor": "MOTOR-SECRETO-77", "chasis": "CHASIS-SECRETO-88"},
 }
 POLIZA = cuerpo_siniestro()["poliza"]
+ANTERIOR = datetime(2026, 6, 1, 15, 0, tzinfo=utc.utc)  # anterior al hecho de `cuerpo_siniestro` (12/08/2026)
 
 
 @pytest.fixture
 def caso_sur(perito15):
     """Antecedente del espacio Sur, cerrado, con el nombre y los atributos que escribió su perito."""
     return crear_siniestro(
-        perito15, "EXP-SUR", fecha_hecho=timezone.now() - timedelta(days=90), personas=[PERSONA_SUR], bienes=[BIEN_SUR],
+        perito15, "EXP-SUR", fecha_hecho=ANTERIOR, personas=[PERSONA_SUR], bienes=[BIEN_SUR],
         estado="cerrado", cierre={"resultado_reclamo": "aprobado", "irregularidad": False, "valoracion": 8, "justificacion": "Sin observaciones."},
     )
 
@@ -116,7 +116,7 @@ def test_f2_si_el_perito_no_escribio_nombre_las_etiquetas_no_usan_el_del_otro_es
 def test_f2_el_espacio_sur_tampoco_ve_el_nombre_que_escribio_el_norte(perito08, perito15):
     nombre_norte = "Nombre Escrito En El Norte"
     norte = crear_siniestro(
-        perito08, "EXP-NORTE", fecha_hecho=timezone.now() - timedelta(days=60), poliza=POLIZA, estado="cerrado",
+        perito08, "EXP-NORTE", fecha_hecho=ANTERIOR, poliza=POLIZA, estado="cerrado",
         personas=[{"tipo_identificador": "DNI", "identificador": DNI, "nombre": nombre_norte, "roles": ["asegurado"]}],
         bienes=[{"tipo": "vehiculo", "identificador": PATENTE, "descripcion": "Descripción del Norte", "atributos": {"motor": "MOTOR-NORTE"}}],
         cierre={"resultado_reclamo": "aprobado", "irregularidad": False, "valoracion": 9, "justificacion": "Sin observaciones."},

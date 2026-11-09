@@ -100,21 +100,17 @@ def exigir_perito(solicitud, accion):
     return exigir_rol(solicitud, (Usuario.PERITO,), "Solo un perito puede acceder a los expedientes.", accion)
 
 
-def siniestro_del_espacio(solicitud, pk, accion):
-    """Devuelve el siniestro pedido si es del espacio del perito; si no, 404 sin dar pistas."""
+def siniestro_asignado(solicitud, pk, accion):
+    """Devuelve el siniestro pedido solo si el usuario es el perito asignado (`perito_id`).
+
+    Cualquier otro caso (otro espacio, otro perito del mismo espacio o un id inexistente) responde igual:
+    404 sin dar pistas de que el expediente existe. Queda auditado como rechazo.
+    """
     usuario = exigir_perito(solicitud, accion)
     siniestro = Siniestro.objects.select_related("espacio", "perito", "poliza").filter(pk=pk).first()
-    if siniestro is None or siniestro.espacio_id != usuario.espacio_id:
+    if siniestro is None or siniestro.perito_id != usuario.id:
         raise no_encontrado("No se encontró el expediente.", accion, f"siniestro:{pk}")
     return siniestro
-
-
-def exigir_responsable(solicitud, siniestro, accion):
-    """Exige que el usuario sea el perito responsable del siniestro (contenido privado y escrituras)."""
-    if siniestro.perito_id != solicitud.user.id:
-        raise prohibido(
-            "Solo el perito responsable puede hacer esto en el expediente.", accion, f"siniestro:{siniestro.pk}", siniestro.pk
-        )
 
 
 def exigir_confirmado(solicitud, siniestro, accion):

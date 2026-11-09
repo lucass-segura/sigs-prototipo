@@ -53,7 +53,9 @@ def escena(norte, sur, perito08, perito11, perito15, admin_norte, admin_sur, sup
     assert subida.status_code == 201, subida.content
     e.documento_id = subida.json()["id"]
     assert c08.post(f"/api/siniestros/{e.norte.id}/notas", {"texto": "nota privada del perito"}, format="json").status_code == 201
-    assert c08.post(f"/api/siniestros/{e.norte.id}/tareas", {"titulo": "tarea privada"}, format="json").status_code == 201
+    tarea = c08.post(f"/api/siniestros/{e.norte.id}/tareas", {"titulo": "tarea privada"}, format="json")
+    assert tarea.status_code == 201
+    e.tarea_id = tarea.json()["id"]
     e.auditoria_id = Auditoria.objects.filter(espacio_id=norte.id).first().id
     return e
 
@@ -80,8 +82,8 @@ def solicitudes(e, usuarios):
         ],
         "A4": [
             (p15, "get", f"/api/siniestros/{n}/notas", None, 404),
-            (p11, "get", f"/api/siniestros/{n}/notas", None, 403),
-            (p11, "get", f"/api/siniestros/{n}/tareas", None, 403),
+            (p11, "get", f"/api/siniestros/{n}/notas", None, 404),
+            (p11, "get", f"/api/siniestros/{n}/tareas", None, 404),
         ],
         "A5": [
             (p08, "get", "/api/personas?dni=30111017", None, 403),
@@ -195,27 +197,60 @@ def test_un_metodo_no_permitido_se_rechaza_y_se_audita(perito08):
     assert Auditoria.objects.filter(usuario=perito08, resultado="rechazado", accion="DELETE /api/siniestros").exists()
 
 
-def test_otro_perito_del_mismo_espacio_puede_leer_pero_no_escribir(escena, perito11):
+def test_otro_perito_del_mismo_espacio_no_accede_a_nada_del_expediente(escena, perito11):
+    """S14: solo el perito asignado accede. El resto, aunque sea del mismo espacio, recibe 404 y queda auditado."""
     cliente = cliente_de(perito11)
-    assert cliente.get(f"/api/siniestros/{escena.norte.id}").status_code == 200
-    assert cliente.get(f"/api/siniestros/{escena.norte.id}/evaluacion").status_code in (200, 404)
-    assert cliente.get(f"/api/siniestros/{escena.norte.id}/coincidencias").status_code == 200
-    for metodo, ruta, cuerpo in (
-        ("post", f"/api/siniestros/{escena.norte.id}/recalcular", None),
-        ("post", f"/api/siniestros/{escena.norte.id}/notas", {"texto": "intruso"}),
-        ("post", f"/api/siniestros/{escena.norte.id}/tareas", {"titulo": "intruso"}),
-        ("post", f"/api/siniestros/{escena.norte.id}/cierre", {"resultado_reclamo": "aprobado", "valoracion": 5, "justificacion": "x"}),
-        ("post", f"/api/siniestros/{escena.norte.id}/archivar", None),
-        ("post", f"/api/siniestros/{escena.norte.id}/anular", {"motivo": "x"}),
-        ("post", f"/api/siniestros/{escena.borrador.id}/confirmar", None),
-        ("patch", f"/api/siniestros/{escena.borrador.id}", {"tipo": "Cambiado"}),
-        ("get", f"/api/siniestros/{escena.norte.id}/documentos", None),
-    ):
+    n, b = escena.norte.id, escena.borrador.id
+    rutas = (
+        ("get", f"/api/siniestros/{n}", None),
+        ("get", f"/api/siniestros/{n}/evaluacion", None),
+        ("get", f"/api/siniestros/{n}/evaluaciones", None),
+        ("get", f"/api/siniestros/{n}/coincidencias", None),
+        ("get", f"/api/siniestros/{n}/antecedentes/{escena.sur_vinculado.id}/resumen", None),
+        ("get", f"/api/siniestros/{n}/cierre", None),
+        ("get", f"/api/siniestros/{n}/documentos", None),
+        ("get", f"/api/siniestros/{n}/notas", None),
+        ("get", f"/api/siniestros/{n}/tareas", None),
+        ("post", f"/api/siniestros/{n}/recalcular", None),
+        ("post", f"/api/siniestros/{n}/notas", {"texto": "intruso"}),
+        ("post", f"/api/siniestros/{n}/tareas", {"titulo": "intruso"}),
+        ("post", f"/api/siniestros/{n}/cierre", {"resultado_reclamo": "aprobado", "valoracion": 5, "justificacion": "x"}),
+        ("post", f"/api/siniestros/{n}/archivar", None),
+        ("post", f"/api/siniestros/{n}/anular", {"motivo": "x"}),
+        ("post", f"/api/siniestros/{b}/confirmar", None),
+        ("patch", f"/api/siniestros/{b}", {"tipo": "Cambiado"}),
+        ("get", f"/api/siniestros/{b}", None),
+        ("patch", f"/api/tareas/{escena.tarea_id}", {"estado": "hecha"}),
+    )
+    for metodo, ruta, cuerpo in rutas:
+        antes = Auditoria.objects.filter(resultado="rechazado", usuario=perito11).count()
         respuesta = getattr(cliente, metodo)(ruta, cuerpo, format="json") if cuerpo else getattr(cliente, metodo)(ruta)
-        assert respuesta.status_code == 403, (metodo, ruta, respuesta.content)
+        assert respuesta.status_code == 404, (metodo, ruta, respuesta.content)
+        assert list(respuesta.json()) == ["detalle"]
+        assert Auditoria.objects.filter(resultado="rechazado", usuario=perito11).count() == antes + 1, (metodo, ruta)
     escena.norte.refresh_from_db()
     escena.borrador.refresh_from_db()
     assert escena.norte.estado == "en_analisis" and escena.borrador.estado == "borrador" and escena.borrador.tipo == "Choque"
+    from nucleo.models import Cierre, Evaluacion, Nota, Tarea
+
+    assert (Nota.objects.count(), Tarea.objects.count(), Cierre.objects.filter(siniestro=escena.norte).count()) == (1, 1, 0)
+    assert Tarea.objects.get().estado == "pendiente"
+
+
+def test_el_otro_perito_del_mismo_espacio_recibe_lo_mismo_que_ante_un_expediente_inexistente(escena, perito11):
+    ajeno = cliente_de(perito11).get(f"/api/siniestros/{escena.norte.id}")
+    inexistente = cliente_de(perito11).get("/api/siniestros/999999")
+    assert ajeno.status_code == inexistente.status_code == 404
+    assert ajeno.json() == inexistente.json()
+
+
+def test_el_perito_asignado_sigue_accediendo_a_todo_su_expediente(escena, perito08):
+    cliente = cliente_de(perito08)
+    n = escena.norte.id
+    assert cliente.post(f"/api/siniestros/{n}/recalcular").status_code == 200
+    for ruta in ("", "/evaluacion", "/evaluaciones", "/coincidencias", "/cierre", "/documentos", "/notas", "/tareas",
+                 f"/antecedentes/{escena.sur_vinculado.id}/resumen"):
+        assert cliente.get(f"/api/siniestros/{n}{ruta}").status_code == 200, ruta
 
 
 def test_el_panel_solo_muestra_los_expedientes_propios(escena, perito11):

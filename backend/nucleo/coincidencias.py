@@ -4,19 +4,20 @@ El grafo es simple y va a dos saltos: siniestro → persona o bien → otro sini
 índices de `participacion(persona_id)`, `bien_afectado(bien_id)` y `siniestro(estado, confirmado_en)`.
 """
 import math
+from datetime import timedelta
 
-from .expediente import cierres_vigentes
+from .expediente import cierres_vigentes, inicio_del_dia_local
 from .models import BienAfectado, Participacion, Siniestro
 
 TAMANIO_PAGINA = 20
 MENSAJE_VACIO = "No hay antecedentes accesibles en la red"
 SIN_NOMBRE = "Persona sin nombre"
 ESCALA_VALORACION = [
-    (2, "No verificado, con elementos que lo contradicen"),
-    (4, "Inconsistencias relevantes"),
-    (6, "Dudas concretas"),
-    (8, "Verificado con observaciones menores"),
-    (10, "Verificado sin observaciones"),
+    (2, "El hecho no pudo verificarse y hay elementos que lo contradicen."),
+    (4, "Hay inconsistencias relevantes que no se pudieron aclarar."),
+    (6, "Hay dudas concretas sin elementos suficientes para confirmarlas ni descartarlas."),
+    (8, "El hecho se verificó con observaciones menores o documentación incompleta."),
+    (10, "El hecho se verificó sin observaciones."),
 ]
 
 
@@ -71,7 +72,8 @@ def buscar_antecedentes(siniestro):
     """Antecedentes válidos del siniestro, ordenados por id.
 
     Antecedente válido: otro siniestro, de cualquier espacio, con `confirmado_en` y estado en análisis,
-    cerrado o archivado. Los anulados y los borradores nunca cuentan.
+    cerrado o archivado, cuya fecha del hecho (fecha local) es estrictamente anterior a la del caso. Los
+    anulados, los borradores y los posteriores (o del mismo día) nunca cuentan.
 
     Devuelve `[{"siniestro", "personas": {persona_id: {"persona", "roles", "nombre"}}, "bienes": [Bien]}]`
     con solo las personas y los bienes compartidos. El `nombre` de cada persona es el de `siniestro` (el
@@ -83,7 +85,8 @@ def buscar_antecedentes(siniestro):
         return []
     candidatos = list(
         Siniestro.objects.filter(
-            id__in=ids, confirmado_en__isnull=False, estado__in=Siniestro.ESTADOS_VALIDOS_COMO_ANTECEDENTE
+            id__in=ids, confirmado_en__isnull=False, estado__in=Siniestro.ESTADOS_VALIDOS_COMO_ANTECEDENTE,
+            fecha_hecho__lt=inicio_del_dia_local(siniestro.fecha_hecho),
         ).select_related("perito").order_by("id")
     )
     ids_validos = [s.pk for s in candidatos]
@@ -100,11 +103,19 @@ def buscar_antecedentes(siniestro):
 
 
 def casos_en_analisis_vinculados(siniestro):
-    """Otros siniestros `en_analisis` (de cualquier espacio) que comparten una persona o un bien con `siniestro`."""
+    """Casos `en_analisis` (de cualquier espacio) a los que `siniestro` les cuenta como antecedente.
+
+    Comparten una persona o un bien con `siniestro` y su fecha del hecho (fecha local) es posterior a la
+    de `siniestro`: un caso anterior o del mismo día nunca lo tiene como antecedente (S15), así que un cambio
+    en `siniestro` no puede modificar su evaluación.
+    """
     personas_caso, bienes_caso = datos_del_caso(siniestro)
     ids = _ids_de_siniestros_vinculados(siniestro, set(personas_caso), {b.pk for b in bienes_caso})
+    inicio_del_dia_siguiente = inicio_del_dia_local(siniestro.fecha_hecho) + timedelta(days=1)
     return list(
-        Siniestro.objects.filter(id__in=ids, estado=Siniestro.EN_ANALISIS, confirmado_en__isnull=False).order_by("id")
+        Siniestro.objects.filter(
+            id__in=ids, estado=Siniestro.EN_ANALISIS, confirmado_en__isnull=False, fecha_hecho__gte=inicio_del_dia_siguiente
+        ).order_by("id")
     )
 
 

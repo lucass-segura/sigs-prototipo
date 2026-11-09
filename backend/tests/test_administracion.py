@@ -1,6 +1,9 @@
 """T12 · HU-01, HU-02, HU-15 y HU-17: roles, usuarios y espacios, auditoría del espacio y perfil de contacto."""
+from datetime import timedelta
+
 import pytest
 from django.core import mail
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from nucleo.models import Auditoria, EspacioTrabajo, Usuario
@@ -221,7 +224,7 @@ def test_hu17_el_perfil_guarda_el_correo_de_contacto_y_la_opcion_de_mostrarlo(pe
 def test_hu17_el_correo_habilitado_aparece_en_los_resumenes_de_mis_casos_cerrados_y_si_se_desactiva_deja_de_aparecer(perito11, perito15):
     from nucleo.fabrica import crear_siniestro
 
-    mio = crear_siniestro(perito11, "S-MIO", bienes=["ZZ111ZZ"], estado="cerrado",
+    mio = crear_siniestro(perito11, "S-MIO", bienes=["ZZ111ZZ"], estado="cerrado", fecha_hecho=timezone.now() - timedelta(days=30),
                           cierre={"resultado_reclamo": "aprobado", "valoracion": 6, "justificacion": "Dudas concretas."})
     ajeno = crear_siniestro(perito15, "S-AJENO", bienes=["ZZ111ZZ"])
     consulta = lambda: cliente_de(perito15).get(f"/api/siniestros/{ajeno.pk}/antecedentes/{mio.pk}/resumen").json()  # noqa: E731
