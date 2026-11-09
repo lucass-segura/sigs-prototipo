@@ -1,9 +1,9 @@
 # SIGS · Sistema Integral de Gestión de Siniestros y Prevención de Fraude
 
-Especificación del prototipo para implementar con el flujo ODD de gentle-ai.
+Especificación funcional del prototipo, tomada del TFG.
 
 - **Autor del proyecto:** Lucas Agustín Segura (TFG, Licenciatura en Informática, UES 21).
-- **Fuente de verdad:** el TFG corregido (`../entregable 3/Entregable3-Segura_Lucas-Seminario_Final-corregido.docx`). Este documento resume lo que el TFG ya afirma del prototipo. **El código tiene que cumplir lo que el documento dice. No hay que cambiar el comportamiento descrito.** Si algo no se puede implementar tal cual, se reporta como pregunta abierta en lugar de inventar.
+- **Fuente:** el Trabajo Final de Graduación (Entregable 4). Este documento resume lo que el TFG afirma del prototipo, y el código tiene que cumplirlo.
 - **Referencias visuales:** `referencias/` (pantallas, diagramas de entidad relación y arquitectura).
 - **Idioma:** la interfaz, los mensajes y los nombres del dominio (modelos, campos y endpoints) van en español, como en el diagrama de entidad relación. El código auxiliar puede ir en inglés.
 
@@ -338,20 +338,14 @@ El repositorio tiene que incluir:
 | T14 | `seed_demo`, `seed_escenarios` y `evaluar_escenarios` | T08 | EXP-2026-0147 da 55, alta, y las métricas dan 100 % |
 | T15 | README, `.env.example` y script de zip | T13, T14 | Se levanta desde cero en una máquina limpia siguiendo solo el README |
 
-## 15. Supuestos para confirmar con Lucas
+## 15. Supuestos de implementación
 
-Son decisiones de implementación que el TFG no fija. Si el orquestador no está seguro, pregunta **una por vez**.
+Son decisiones que el TFG no fija y se tomaron al implementar.
 
 1. R02 solo se activa si el pago es **anterior o del mismo día** que el hecho (`0 ≤ días ≤ 15`). Un pago posterior al hecho no la activa.
 2. R03, R04 y R07 cuentan a la persona **con cualquier rol**. R05 es la única que mira el cambio de rol.
 3. Las ventanas de 12 y 24 meses se cuentan hacia atrás desde la fecha del hecho del caso analizado.
-4. El perito puede ver los expedientes de otros peritos **de su mismo espacio** por API, pero su panel (HU-16) muestra solo los propios.
-
-## 16. Progreso
-
-- [ ] T01 … T15 (sin empezar)
-
-**Siguiente paso:** T01.
+4. Cada perito accede solo a los expedientes que tiene asignados. De los casos de otros peritos ve únicamente el resumen de los antecedentes que coinciden con un siniestro suyo confirmado.
 
 ---
 
