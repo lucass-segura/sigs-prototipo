@@ -71,7 +71,7 @@ Se crea una por siniestro.
 | Columna | Tipo | Nulo | Restricciones | Significado |
 |---|---|---|---|---|
 | `id` | bigint | no | PK | Identificador de la póliza |
-| `numero` | varchar(60) | no | | Número de póliza, por ejemplo `AUT-000123` |
+| `numero` | varchar(60) | no | | Número de póliza, por ejemplo `AUT-000123`. Un borrador puede tenerlo vacío, pero para confirmar la API lo exige |
 | `compania` | varchar(150) | no | puede quedar vacío | Compañía aseguradora |
 | `cobertura` | varchar(150) | no | puede quedar vacío | Cobertura, por ejemplo «Terceros completo con incendio total» |
 | `inicio_vigencia` | date | sí | | Inicio de vigencia. La usa R01. Si hay valor, el hecho del siniestro no puede ser anterior |
@@ -103,10 +103,10 @@ Se crea una por siniestro.
 | `id` | bigint | no | PK | Identificador del siniestro |
 | `espacio_id` | bigint | no | FK → `espacio_trabajo` | Espacio dueño del expediente |
 | `perito_id` | bigint | no | FK → `usuario` | Perito asignado, quien lo creó. **Solo él accede al expediente** |
-| `poliza_id` | bigint | sí | FK → `poliza` | Póliza del caso. Para confirmar es obligatoria |
+| `poliza_id` | bigint | sí | FK → `poliza` | Póliza del caso. Para confirmar es obligatoria y debe tener número (`poliza.numero` no vacío) |
 | `numero_expediente` | varchar(40) | no | único | Código visible del caso, por ejemplo `EXP-2026-0147`; si no se indica se genera `EXP-AAAA-NNNN` |
 | `tipo` | varchar(150) | no | puede quedar vacío | Tipo de siniestro, por ejemplo «Incendio total del vehículo» |
-| `fecha_hecho` | timestamptz | no | | Momento declarado del hecho. La usan R01, R02, R04 y R08 (con su fecha local). Su fecha local no puede ser anterior a `poliza.inicio_vigencia` (lo valida la API) |
+| `fecha_hecho` | timestamptz | no | | Momento declarado del hecho. La usan R01, R02, R04 y R08 (con su fecha local). Su fecha local no puede ser anterior a `poliza.inicio_vigencia` y el momento no puede ser futuro (más de 5 minutos después de ahora); lo valida la API al crear, editar y confirmar |
 | `fecha_denuncia` | date | sí | | Día en que se hizo la denuncia. La usa R08 |
 | `numero_denuncia` | varchar(60) | no | puede quedar vacío | Número de la denuncia, por ejemplo `DEN-2026-0147` (Anexo 1) **(extra)** |
 | `hora_denuncia` | time | sí | | Hora de la denuncia, por ejemplo `10:20`. R08 no la usa: sigue contando por `fecha_denuncia` **(extra)** |
@@ -332,7 +332,7 @@ Valores del E4 (línea del campo; la longitud está dos líneas más abajo) cont
 | `siniestro.numero_expediente` (E4:1484) | Texto, longitud 20 | `varchar(40)` |
 | `siniestro.tipo` (E4:1488) | Texto, longitud 40 | `varchar(150)` |
 | `siniestro.estado` (E4:1500) | Texto, longitud 20 | `varchar(15)` |
-| `siniestro.fecha_hecho` (E4:1492) | «Momento declarado del hecho» | Además su fecha local no puede ser anterior a `poliza.inicio_vigencia` (la API lo rechaza) |
+| `siniestro.fecha_hecho` (E4:1492) | «Momento declarado del hecho» | Además su fecha local no puede ser anterior a `poliza.inicio_vigencia` ni ser futura (la API lo rechaza) |
 | `evaluacion.entradas` (E4:1523) y `senal.antecedentes` (E4:1535) | Sin detalle | Las entradas solo incluyen antecedentes con fecha del hecho anterior a la del caso; `senal.antecedentes` lista `{id, numero_expediente, fecha_hecho, vinculo}` |
 | `evaluacion.motivo` | No figura | Columna nueva, `varchar(30)`, con 8 valores |
 | `senal.texto_explicacion`, `senal.dato` | No figuran | Columnas nuevas (`text` y `jsonb`) |

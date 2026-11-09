@@ -363,13 +363,13 @@ export interface Requisito {
   pasos: IdPaso[];
 }
 
-export const polizaCargada = (d: DatosSiniestro): boolean =>
-  [d.numeroPoliza, d.compania, d.cobertura].some((t) => t.trim() !== "") || d.inicioVigencia !== "" || d.primerPago !== "";
+/** Para confirmar no alcanza con cargar otros datos de la póliza: hace falta el número (S34). */
+export const numeroDePolizaCargado = (d: DatosSiniestro): boolean => d.numeroPoliza.trim() !== "";
 
-/** La misma regla del backend: póliza, fecha del hecho y al menos una persona o un bien. */
+/** La misma regla del backend: número de póliza, fecha del hecho y al menos una persona o un bien. */
 export function requisitosParaConfirmar(d: DatosSiniestro): Requisito[] {
   return [
-    { id: "poliza", texto: "Póliza: cargá al menos un dato de la póliza.", cumplido: polizaCargada(d), pasos: ["poliza"] },
+    { id: "poliza", texto: "Póliza: cargá el número de póliza.", cumplido: numeroDePolizaCargado(d), pasos: ["poliza"] },
     { id: "fecha-hecho", texto: "Fecha y hora del hecho.", cumplido: d.fechaHecho !== "" && d.horaHecho !== "", pasos: ["hecho"] },
     {
       id: "vinculo",

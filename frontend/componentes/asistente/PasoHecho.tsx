@@ -9,6 +9,8 @@ import type { PropsPaso } from "./tipos";
 
 export const MENSAJE_FECHA_HECHO_REQUERIDA = "Elegí la fecha del hecho.";
 export const MENSAJE_HORA_HECHO_REQUERIDA = "Elegí la hora del hecho.";
+/** El mismo texto que devuelve la API (S34), para la fecha y para la hora. */
+export const MENSAJE_HECHO_FUTURO = "La fecha del hecho no puede ser futura.";
 
 export function PasoHecho({ datos, cambiar, mensajes, selector }: PropsPaso) {
   const ahora = useAhora();
@@ -39,6 +41,7 @@ export function PasoHecho({ datos, cambiar, mensajes, selector }: PropsPaso) {
             minimo={datos.inicioVigencia || undefined}
             motivoMinimo={`Es anterior al inicio de vigencia de la póliza (${formatearFecha(datos.inicioVigencia)}): un hecho anterior no es un siniestro.`}
             noFuturo
+            motivoMaximo={MENSAJE_HECHO_FUTURO}
             atajos={["hoy", "ayer"]}
             requerido
             mensajeRequerido={MENSAJE_FECHA_HECHO_REQUERIDA}
@@ -52,7 +55,7 @@ export function PasoHecho({ datos, cambiar, mensajes, selector }: PropsPaso) {
             valor={datos.horaHecho}
             onCambio={poner("horaHecho")}
             maxima={datos.fechaHecho && datos.fechaHecho === ahora.fecha ? ahora.hora : undefined}
-            motivoMaxima="Todavía no pasó: la hora no puede ser posterior a la actual."
+            motivoMaxima={MENSAJE_HECHO_FUTURO}
             requerido
             mensajeRequerido={MENSAJE_HORA_HECHO_REQUERIDA}
             {...selector("hora-hecho")}

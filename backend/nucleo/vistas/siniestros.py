@@ -30,7 +30,10 @@ from ..resumen import construir_resumen
 from ..serializadores import siniestro_json
 
 MENSAJE_HECHO_ANTES_DE_VIGENCIA = "La fecha del hecho no puede ser anterior al inicio de vigencia de la póliza."
+MENSAJE_HECHO_FUTURO = "La fecha del hecho no puede ser futura."
 MENSAJE_CONFIRMAR = "Para confirmar hacen falta la póliza, la fecha del hecho y al menos una persona o un bien."
+# Diferencia de reloj que se tolera entre el equipo del perito y el servidor (S34).
+TOLERANCIA_RELOJ = timedelta(minutes=5)
 PRIORIDAD_ORDEN = {"alta": 0, "media": 1, "baja": 2}
 
 
@@ -124,9 +127,19 @@ def _validar_entrada(solicitud, parcial):
     return entrada.validated_data
 
 
-def _requisitos_de_confirmacion(poliza, hay_personas_o_bienes):
-    if poliza is None or not hay_personas_o_bienes:
+def _requisitos_de_confirmacion(numero_poliza, hay_personas_o_bienes):
+    """Confirmar exige el número de póliza (no alcanza una póliza vacía) y al menos una persona o un bien (S34)."""
+    if not (numero_poliza or "").strip() or not hay_personas_o_bienes:
         raise serializers.ValidationError({"detalle": MENSAJE_CONFIRMAR})
+
+
+def _validar_hecho_no_futuro(fecha_hecho):
+    """El hecho no puede ocurrir después del momento actual (S34), con 5 minutos de tolerancia de reloj.
+
+    Se compara como instante (fecha y hora con zona), no como fecha: un hecho de hoy a una hora que todavía no llegó se rechaza.
+    """
+    if fecha_hecho is not None and fecha_hecho > timezone.now() + TOLERANCIA_RELOJ:
+        raise serializers.ValidationError({"fecha_hecho": [MENSAJE_HECHO_FUTURO]})
 
 
 def _validar_hecho_dentro_de_vigencia(fecha_hecho, inicio_vigencia):
@@ -192,10 +205,11 @@ class Siniestros(APIView):
     def post(self, solicitud):
         usuario = exigir_perito(solicitud, "crear_siniestro")
         datos = _validar_entrada(solicitud, parcial=False)
+        _validar_hecho_no_futuro(datos["fecha_hecho"])
         _validar_hecho_dentro_de_vigencia(datos["fecha_hecho"], (datos.get("poliza") or {}).get("inicio_vigencia"))
         confirmar = datos.pop("confirmar", False)
         if confirmar:
-            _requisitos_de_confirmacion(datos.get("poliza"), bool(datos.get("personas") or datos.get("bienes")))
+            _requisitos_de_confirmacion((datos.get("poliza") or {}).get("numero"), bool(datos.get("personas") or datos.get("bienes")))
         numero = (datos.pop("numero_expediente", "") or "").strip() or None
         if numero and Siniestro.objects.filter(numero_expediente=numero).exists():
             raise serializers.ValidationError({"numero_expediente": ["Ya existe un expediente con ese número."]})
@@ -245,7 +259,9 @@ class DetalleSiniestro(APIView):
         # valores que quedarían guardados: lo que llega o, si no llega, lo que ya tiene el borrador
         inicio_vigencia = datos["poliza"].get("inicio_vigencia") if datos.get("poliza") else (
             siniestro.poliza.inicio_vigencia if siniestro.poliza else None)
-        _validar_hecho_dentro_de_vigencia(datos.get("fecha_hecho", siniestro.fecha_hecho), inicio_vigencia)
+        fecha_hecho = datos.get("fecha_hecho", siniestro.fecha_hecho)
+        _validar_hecho_no_futuro(fecha_hecho)
+        _validar_hecho_dentro_de_vigencia(fecha_hecho, inicio_vigencia)
         numero = (datos.pop("numero_expediente", None) or "").strip()
         if numero and numero != siniestro.numero_expediente:
             if Siniestro.objects.filter(numero_expediente=numero).exists():
@@ -273,7 +289,8 @@ class Confirmar(APIView):
         if siniestro.estado != Siniestro.BORRADOR:
             raise serializers.ValidationError({"detalle": "Solo un borrador se puede confirmar."})
         hay_vinculos = Participacion.objects.filter(siniestro=siniestro).exists() or BienAfectado.objects.filter(siniestro=siniestro).exists()
-        _requisitos_de_confirmacion(siniestro.poliza, hay_vinculos)
+        _requisitos_de_confirmacion(siniestro.poliza.numero if siniestro.poliza else None, hay_vinculos)
+        _validar_hecho_no_futuro(siniestro.fecha_hecho)
         _validar_hecho_dentro_de_vigencia(siniestro.fecha_hecho, siniestro.poliza.inicio_vigencia)
         with transaction.atomic():
             _confirmar(solicitud.user, siniestro)

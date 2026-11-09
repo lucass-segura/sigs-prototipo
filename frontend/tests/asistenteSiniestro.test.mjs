@@ -15,7 +15,7 @@ import {
   indiceEnviado,
   pasoDeRuta,
   pasosConError,
-  polizaCargada,
+  numeroDePolizaCargado,
   primerPasoConError,
   reducirDatos,
   requisitosParaConfirmar,
@@ -169,7 +169,7 @@ test("validación suave: avisa por paso con los mismos textos de la API", () => 
   assert.deepEqual(validarPaso(completo(), "personas"), {});
 });
 
-test("para confirmar: póliza, fecha del hecho y al menos una persona o un bien", () => {
+test("para confirmar: número de póliza, fecha del hecho y al menos una persona o un bien", () => {
   const faltan = (d) => requisitosParaConfirmar(d).filter((r) => !r.cumplido).map((r) => r.id);
   assert.deepEqual(faltan(datosIniciales()), ["poliza", "fecha-hecho", "vinculo"]);
   assert.deepEqual(faltan(completo()), []);
@@ -182,9 +182,25 @@ test("para confirmar: póliza, fecha del hecho y al menos una persona o un bien"
   const sinVinculos = reducirDatos(soloBien, { tipo: "bien/quitar", clave: soloBien.bienes[0].clave });
   assert.deepEqual(faltan(sinVinculos), ["vinculo"]);
   assert.deepEqual(requisitosParaConfirmar(sinVinculos).find((r) => r.id === "vinculo").pasos, ["personas", "bienes"]);
-  assert.equal(polizaCargada(datosIniciales()), false);
-  assert.equal(polizaCargada(campo(datosIniciales(), "primerPago", "2026-02-01")), true);
-  assert.equal(polizaCargada(campo(datosIniciales(), "compania", "   ")), false);
+});
+
+test("para confirmar: el número de póliza es lo que cuenta (S34), no cualquier dato de la póliza", () => {
+  const faltan = (d) => requisitosParaConfirmar(d).filter((r) => !r.cumplido).map((r) => r.id);
+  const sinNumero = (d) => campo(d, "numeroPoliza", "");
+  // Compañía, cobertura y fechas de la póliza cargadas, pero sin número: sigue faltando
+  let d = sinNumero(completo());
+  d = campo(d, "cobertura", "Todo riesgo");
+  d = campo(d, "primerPago", "2026-02-01");
+  assert.deepEqual(faltan(d), ["poliza"]);
+  assert.deepEqual(faltan(campo(completo(), "numeroPoliza", "   ")), ["poliza"]);
+  assert.deepEqual(faltan(campo(completo(), "numeroPoliza", "POL-1")), []);
+  const requisito = requisitosParaConfirmar(sinNumero(completo())).find((r) => r.id === "poliza");
+  assert.equal(requisito.texto, "Póliza: cargá el número de póliza.");
+  assert.deepEqual(requisito.pasos, ["poliza"]);
+  assert.equal(numeroDePolizaCargado(datosIniciales()), false);
+  assert.equal(numeroDePolizaCargado(campo(datosIniciales(), "compania", "Sur")), false);
+  assert.equal(numeroDePolizaCargado(campo(datosIniciales(), "numeroPoliza", "  ")), false);
+  assert.equal(numeroDePolizaCargado(campo(datosIniciales(), "numeroPoliza", "POL-1")), true);
 });
 
 test("sessionStorage: una clave por usuario y por borrador (o «nuevo»)", () => {
