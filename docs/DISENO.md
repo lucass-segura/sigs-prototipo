@@ -7,7 +7,7 @@ Todo en español: interfaz, mensajes, comentarios, docstrings y nombres del domi
 
 ```
 sigs/
-  docker-compose.yml   nginx/nginx.conf   db/init/01-rol-aplicacion.sh   env.example
+  docker-compose.yml   nginx/nginx.conf   db/init/01-rol-aplicacion.sh   .env.example
   backend/   Django 5.2 + DRF, una sola app `nucleo`
     config/settings.py (ya escrito)   config/urls.py   config/wsgi.py
     nucleo/models.py, autenticacion.py, permisos.py, auditoria.py, validadores.py,
@@ -26,7 +26,7 @@ La base de PostgreSQL usa dos roles, ninguno superusuario (el superusuario solo 
 - **Dueño** (`DB_OWNER_USER`, por defecto `sigs_owner`, NOSUPERUSER, CREATEDB): es dueño de la base y de las tablas. Corre las migraciones, los datos de demo (`seed_demo`, `seed_escenarios`), los comandos de `manage.py` y los tests (`docker compose run --rm backend pytest`). `settings.py` lo usa por defecto.
 - **Aplicación** (`DB_APP_USER`, por defecto `sigs_app`, NOSUPERUSER, sin CREATEDB, no es dueño de nada): es el que usa Gunicorn. `entrypoint.sh` migra y carga los datos con el dueño y después exporta `DB_USER` y `DB_PASSWORD` con las credenciales de este rol antes de arrancar el servidor. La migración `0004` le otorga USAGE sobre el esquema, SELECT, INSERT, UPDATE y DELETE sobre las tablas comunes, USAGE y SELECT sobre las secuencias, y **solo SELECT e INSERT** sobre `auditoria`, `cierre`, `evaluacion` y `senal`, sin UPDATE, DELETE ni TRUNCATE. Además `ALTER DEFAULT PRIVILEGES` le da los permisos comunes sobre las tablas futuras (si una migración futura crea otra tabla de solo altas, tiene que revocar el resto). Si el rol no existe, la migración omite los permisos.
 
-Como el rol de la aplicación no es dueño, tampoco puede hacer `ALTER TABLE ... DISABLE TRIGGER` ni borrar los triggers: la auditoría no se modifica ni con SQL directo del usuario de la aplicación. Los nombres y las claves se cambian con `DB_OWNER_USER`, `DB_OWNER_PASSWORD`, `DB_APP_USER` y `DB_APP_PASSWORD` (ver `env.example`).
+Como el rol de la aplicación no es dueño, tampoco puede hacer `ALTER TABLE ... DISABLE TRIGGER` ni borrar los triggers: la auditoría no se modifica ni con SQL directo del usuario de la aplicación. Los nombres y las claves se cambian con `DB_OWNER_USER`, `DB_OWNER_PASSWORD`, `DB_APP_USER` y `DB_APP_PASSWORD` (ver `.env.example`).
 
 ### Base de datos por SQL (S25)
 

@@ -19,7 +19,7 @@ No hace falta instalar Python, Node ni PostgreSQL: todo corre en contenedores.
 ```bash
 git clone https://github.com/lucass-segura/sigs-prototipo.git
 cd sigs-prototipo
-cp env.example .env        # opcional: sin .env se usan estos mismos valores
+cp .env.example .env        # opcional: sin .env se usan estos mismos valores
 docker compose up --build
 ```
 
