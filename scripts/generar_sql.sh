@@ -13,6 +13,8 @@
 #   `django_migrations` (más los tipos de contenido y permisos de Django).
 # - 02_cargar_datos_demo.sql: solo datos (usuarios, espacios, casos de la demo y los 30 escenarios), con las
 #   secuencias ajustadas. Los archivos de los documentos de la demo se copian a db/sql/documentos/.
+#   Los vencimientos de las tareas de la demo son relativos al día en que se genera el script, que queda
+#   anotado en la línea `-- generado: AAAA-MM-DD`; `cargar_sql.sh` los corre según los días transcurridos.
 #
 # Uso: ./scripts/generar_sql.sh
 set -euo pipefail
@@ -48,6 +50,9 @@ pg_dump_base() {
 sin_ruido() {
   sed -e '/^\\restrict /d' -e '/^\\unrestrict /d'
 }
+
+# Día de generación (fecha local de la aplicación): los vencimientos de las tareas de la demo salen relativos a él.
+FECHA_GENERACION="$(TZ=America/Argentina/Buenos_Aires date +%F)"
 
 mkdir -p "$DESTINO/documentos"
 
@@ -159,6 +164,13 @@ cat <<'ENCABEZADO'
 -- evaluaciones. Es lo mismo que producen `seed_demo` y `seed_escenarios`.
 --
 -- GENERADO por scripts/generar_sql.sh. No lo edites a mano.
+-- generado: @FECHA_GENERACION@
+--
+-- Vencimientos de las tareas: salen relativos al día de generación (la línea `generado` de arriba). Quien carga
+-- este script con ./scripts/cargar_sql.sh recibe los vencimientos corridos al día de la carga. Si lo cargás a
+-- mano con psql, corré los vencimientos con:
+--     UPDATE tarea SET vence_en = vence_en + (CURRENT_DATE - DATE '@FECHA_GENERACION@') WHERE vence_en IS NOT NULL;
+-- (como el rol sigs_owner, dueño de las tablas) o quedan con las fechas del día de generación.
 --
 -- Requisito: la base tiene que estar creada con db/sql/01_crear_base.sql.
 -- Solo inserta datos, sin desactivar triggers: las tablas de solo altas aceptan INSERT. Las secuencias
@@ -206,9 +218,10 @@ COMMIT;
 \echo 'Datos de demo cargados. Usuarios: perito08@sigs.test, admin.norte@sigs.test, superadmin@sigs.test, etc.'
 \endif
 PIE
-} > "$DESTINO/02_cargar_datos_demo.sql"
+} | sed "s/@FECHA_GENERACION@/$FECHA_GENERACION/g" > "$DESTINO/02_cargar_datos_demo.sql"
 
 echo "==> Listo"
 echo "    $DESTINO/01_crear_base.sql   ($(wc -l < "$DESTINO/01_crear_base.sql" | tr -d ' ') líneas)"
 echo "    $DESTINO/02_cargar_datos_demo.sql   ($(wc -l < "$DESTINO/02_cargar_datos_demo.sql" | tr -d ' ') líneas)"
+echo "    Fecha de generación: $FECHA_GENERACION (vencimientos de las tareas relativos a ese día)"
 echo "    $DESTINO/documentos/   ($(find "$DESTINO/documentos" -type f | wc -l | tr -d ' ') archivo/s)"

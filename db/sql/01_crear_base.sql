@@ -2246,37 +2246,37 @@ INSERT INTO public.auth_permission (id, name, content_type_id, codename) VALUES 
 -- Data for Name: conjunto_reglas; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-INSERT INTO public.conjunto_reglas (id, version, vigente_desde, topes, activo, creado_en, basado_en_id, creado_por_id) VALUES (1, 'RS-1.0', '2026-10-01', '{"total": 100, "grupos": {"Bien": 25, "Persona": 35, "Denuncia": 10, "Cobertura": 30, "Antecedente": 30}, "prioridad": {"alta": 50, "media": 25}}', true, '2026-11-09 03:28:57.415488+00', NULL, NULL);
+INSERT INTO public.conjunto_reglas (id, version, vigente_desde, topes, activo, creado_en, basado_en_id, creado_por_id) VALUES (1, 'RS-1.0', '2026-10-01', '{"total": 100, "grupos": {"Bien": 25, "Persona": 35, "Denuncia": 10, "Cobertura": 30, "Antecedente": 30}, "prioridad": {"alta": 50, "media": 25}}', true, '2026-11-09 04:55:40.079328+00', NULL, NULL);
 
 
 --
 -- Data for Name: django_migrations; Type: TABLE DATA; Schema: public; Owner: -
 --
 
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (1, 'contenttypes', '0001_initial', '2026-11-09 03:28:57.229207+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (2, 'contenttypes', '0002_remove_content_type_name', '2026-11-09 03:28:57.231071+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (3, 'auth', '0001_initial', '2026-11-09 03:28:57.243458+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (4, 'auth', '0002_alter_permission_name_max_length', '2026-11-09 03:28:57.244682+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (5, 'auth', '0003_alter_user_email_max_length', '2026-11-09 03:28:57.245804+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (6, 'auth', '0004_alter_user_username_opts', '2026-11-09 03:28:57.246838+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (7, 'auth', '0005_alter_user_last_login_null', '2026-11-09 03:28:57.248098+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (8, 'auth', '0006_require_contenttypes_0002', '2026-11-09 03:28:57.24846+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (9, 'auth', '0007_alter_validators_add_error_messages', '2026-11-09 03:28:57.249577+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (10, 'auth', '0008_alter_user_username_max_length', '2026-11-09 03:28:57.250648+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (11, 'auth', '0009_alter_user_last_name_max_length', '2026-11-09 03:28:57.251725+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (12, 'auth', '0010_alter_group_name_max_length', '2026-11-09 03:28:57.25345+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (13, 'auth', '0011_update_proxy_permissions', '2026-11-09 03:28:57.254473+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (14, 'auth', '0012_alter_user_first_name_max_length', '2026-11-09 03:28:57.256168+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (15, 'nucleo', '0001_initial', '2026-11-09 03:28:57.409669+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (16, 'nucleo', '0002_triggers_solo_altas', '2026-11-09 03:28:57.411165+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (17, 'nucleo', '0003_reglas_rs_1_0', '2026-11-09 03:28:57.417323+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (18, 'nucleo', '0004_permisos_rol_aplicacion', '2026-11-09 03:28:57.424067+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (19, 'nucleo', '0005_datos_por_caso', '2026-11-09 03:28:57.439381+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (20, 'nucleo', '0006_reglas_inmutables', '2026-11-09 03:28:57.440777+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (21, 'nucleo', '0007_motivos_y_respaldo_del_cierre', '2026-11-09 03:28:57.451951+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (22, 'nucleo', '0008_datos_de_la_denuncia', '2026-11-09 03:28:57.48176+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (23, 'nucleo', '0009_escena_del_croquis', '2026-11-09 03:28:57.485283+00');
-INSERT INTO public.django_migrations (id, app, name, applied) VALUES (24, 'sessions', '0001_initial', '2026-11-09 03:28:57.489589+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (1, 'contenttypes', '0001_initial', '2026-11-09 04:55:39.899915+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (2, 'contenttypes', '0002_remove_content_type_name', '2026-11-09 04:55:39.901659+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (3, 'auth', '0001_initial', '2026-11-09 04:55:39.91466+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (4, 'auth', '0002_alter_permission_name_max_length', '2026-11-09 04:55:39.91599+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (5, 'auth', '0003_alter_user_email_max_length', '2026-11-09 04:55:39.917112+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (6, 'auth', '0004_alter_user_username_opts', '2026-11-09 04:55:39.918237+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (7, 'auth', '0005_alter_user_last_login_null', '2026-11-09 04:55:39.919394+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (8, 'auth', '0006_require_contenttypes_0002', '2026-11-09 04:55:39.919717+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (9, 'auth', '0007_alter_validators_add_error_messages', '2026-11-09 04:55:39.920954+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (10, 'auth', '0008_alter_user_username_max_length', '2026-11-09 04:55:39.922099+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (11, 'auth', '0009_alter_user_last_name_max_length', '2026-11-09 04:55:39.923191+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (12, 'auth', '0010_alter_group_name_max_length', '2026-11-09 04:55:39.925023+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (13, 'auth', '0011_update_proxy_permissions', '2026-11-09 04:55:39.926096+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (14, 'auth', '0012_alter_user_first_name_max_length', '2026-11-09 04:55:39.927884+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (15, 'nucleo', '0001_initial', '2026-11-09 04:55:40.073026+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (16, 'nucleo', '0002_triggers_solo_altas', '2026-11-09 04:55:40.074616+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (17, 'nucleo', '0003_reglas_rs_1_0', '2026-11-09 04:55:40.081593+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (18, 'nucleo', '0004_permisos_rol_aplicacion', '2026-11-09 04:55:40.08943+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (19, 'nucleo', '0005_datos_por_caso', '2026-11-09 04:55:40.104944+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (20, 'nucleo', '0006_reglas_inmutables', '2026-11-09 04:55:40.106129+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (21, 'nucleo', '0007_motivos_y_respaldo_del_cierre', '2026-11-09 04:55:40.116706+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (22, 'nucleo', '0008_datos_de_la_denuncia', '2026-11-09 04:55:40.147869+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (23, 'nucleo', '0009_escena_del_croquis', '2026-11-09 04:55:40.151525+00');
+INSERT INTO public.django_migrations (id, app, name, applied) VALUES (24, 'sessions', '0001_initial', '2026-11-09 04:55:40.155511+00');
 
 
 --

@@ -1,6 +1,6 @@
 """Datos de demostración (todo ficticio): la narrativa del TFG sobre dos espacios de trabajo."""
 import uuid
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -16,6 +16,11 @@ from .motor import guardar_evaluacion
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
 NORTE = "Estudio Pericial Norte"
 SUR = "Perito Independiente Sur"
+
+
+def hoy_local():
+    """Fecha de hoy en la zona del proyecto: los vencimientos de las tareas de la demo se calculan a partir de ella."""
+    return datetime.now(ZONA).date()
 
 
 def _momento(anio, mes, dia, hora=12, minuto=0):
@@ -79,19 +84,27 @@ def _guardar_documento(caso, perito):
     )
 
 
-def _seguimiento_del_caso_0147(caso, perito):
-    def tarea(titulo, estado, vence=None, creada=(2026, 8, 18), cambios=()):
-        t = Tarea.objects.create(siniestro=caso, titulo=titulo, estado=estado, vence_en=vence, creada_en=_momento(*creada, 11))
-        for anterior, nuevo, cuando in cambios:
-            TareaCambio.objects.create(tarea=t, estado_anterior=anterior, estado_nuevo=nuevo, usuario=perito, fecha=cuando)
+def _tarea(caso, perito, titulo, estado, vence=None, creada=(2026, 8, 18), cambios=()):
+    t = Tarea.objects.create(siniestro=caso, titulo=titulo, estado=estado, vence_en=vence, creada_en=_momento(*creada, 11))
+    for anterior, nuevo, cuando in cambios:
+        TareaCambio.objects.create(tarea=t, estado_anterior=anterior, estado_nuevo=nuevo, usuario=perito, fecha=cuando)
 
-    tarea("Pedir resultado del antecedente S-2025-0381", Tarea.PENDIENTE, date(2026, 8, 27))
-    tarea("Redactar informe", Tarea.PENDIENTE, date(2026, 9, 1))
-    tarea("Esperar acta policial", Tarea.EN_CURSO, None, (2026, 8, 16),
-          [("pendiente", "en_curso", _momento(2026, 8, 18, 12))])
-    tarea("Inspección del vehículo", Tarea.HECHA, None, (2026, 8, 18),
-          [("pendiente", "en_curso", _momento(2026, 8, 18, 15)), ("en_curso", "hecha", _momento(2026, 8, 19, 17))])
-    tarea("Entrevista al asegurado", Tarea.HECHA, None, (2026, 8, 18), [("pendiente", "hecha", _momento(2026, 8, 21, 10))])
+
+def _tareas_de_otros_casos(caso, perito, hoy):
+    """Tareas con vencimiento hoy y más adelante: junto con las de EXP-2026-0147 cubren todos los filtros de la página Tareas."""
+    _tarea(caso, perito, "Solicitar el peritaje de daños del frente", Tarea.PENDIENTE, hoy, (2026, 8, 4))
+    _tarea(caso, perito, "Citar a P-31 a declarar", Tarea.PENDIENTE, hoy + timedelta(days=12), (2026, 8, 4))
+
+
+def _seguimiento_del_caso_0147(caso, perito, hoy):
+    # Los vencimientos son relativos al día de carga: una tarea vencida y otra que vence esta semana
+    _tarea(caso, perito, "Pedir resultado del antecedente S-2025-0381", Tarea.PENDIENTE, hoy - timedelta(days=2))
+    _tarea(caso, perito, "Redactar informe", Tarea.PENDIENTE, hoy + timedelta(days=3))
+    _tarea(caso, perito, "Esperar acta policial", Tarea.EN_CURSO, None, (2026, 8, 16),
+           [("pendiente", "en_curso", _momento(2026, 8, 18, 12))])
+    _tarea(caso, perito, "Inspección del vehículo", Tarea.HECHA, None, (2026, 8, 18),
+           [("pendiente", "en_curso", _momento(2026, 8, 18, 15)), ("en_curso", "hecha", _momento(2026, 8, 19, 17))])
+    _tarea(caso, perito, "Entrevista al asegurado", Tarea.HECHA, None, (2026, 8, 18), [("pendiente", "hecha", _momento(2026, 8, 21, 10))])
     for dia, hora, texto in (
         (18, 11, "Recibo el caso. Falta foto del número de chasis."),
         (19, 17, "Numeración de motor y chasis coincide con la cédula. Habitáculo y motor quemados por completo."),
@@ -128,7 +141,8 @@ def cargar_demo():
                  "atributos": {"motor": "MTR-55821", "chasis": "CHS-90311"}}],
         confirmado_en=_momento(2026, 8, 18, 10, 42),
     )
-    _seguimiento_del_caso_0147(exp_0147, u["pe08"])
+    hoy = hoy_local()
+    _seguimiento_del_caso_0147(exp_0147, u["pe08"], hoy)
 
     # Antecedente del mismo vehículo en el otro espacio (Sur, PE-15): aprobado, valoración 7
     caso(
@@ -163,9 +177,10 @@ def cargar_demo():
 
     # R07: la persona P-31 figura en un antecedente cerrado con irregularidad confirmada
     p31 = _persona("27333031", "P-31", "asegurado", "conductor")
-    caso("pe08", "EXP-2026-0139", tipo="Choque en calle", fecha_hecho=_momento(2026, 8, 2, 18, 20), fecha_denuncia=date(2026, 8, 3),
+    exp_0139 = caso("pe08", "EXP-2026-0139", tipo="Choque en calle", fecha_hecho=_momento(2026, 8, 2, 18, 20), fecha_denuncia=date(2026, 8, 3),
          lugar="Calle San Martín, Neuquén", poliza=_poliza("AUT-000530", date(2025, 4, 1), date(2025, 4, 3)), personas=[p31],
          bienes=[{"tipo": "vehiculo", "identificador": "AC904KL", "detalle_dano": "Daños en el frente."}])
+    _tareas_de_otros_casos(exp_0139, u["pe08"], hoy)
     caso("pe15", "S-2024-0207", tipo="Choque con lesiones", fecha_hecho=_momento(2024, 3, 10, 14, 0), fecha_denuncia=date(2024, 3, 11),
          poliza=_poliza("AUT-000201", date(2023, 1, 1), date(2023, 1, 3)), personas=[_persona("27333031", "P-31", "asegurado")],
          bienes=[{"tipo": "vehiculo", "identificador": "AE777ZZ"}], estado=Siniestro.CERRADO,

@@ -10,6 +10,7 @@ solo trae `backend/`), así que se saltean salvo que se la monte:
     docker compose run --rm -v "$PWD/db:/db:ro" backend pytest tests/test_s25_scripts_sql.py
 """
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -115,6 +116,15 @@ def test_s25_los_datos_de_demo_no_repiten_lo_que_ya_crea_el_script_de_creacion(d
     for tabla in ("conjunto_reglas", "regla", "django_migrations", "django_content_type", "auth_permission"):
         assert f"INSERT INTO public.{tabla} " not in datos
     assert datos.count("BEGIN;") == 1 and datos.count("COMMIT;") == 1  # una sola transacción
+
+
+def test_s32_los_datos_de_demo_anotan_la_fecha_de_generacion_para_correr_los_vencimientos(datos):
+    marcas = re.findall(r"^-- generado: (\d{4}-\d{2}-\d{2})$", datos, flags=re.MULTILINE)
+    assert len(marcas) == 1 and "@FECHA_GENERACION@" not in datos
+    generado = date.fromisoformat(marcas[0])
+    # Los vencimientos de las tareas son relativos a esa fecha: hay vencida (hoy-2), de hoy y más adelante (hoy+12)
+    vencimientos = {date.fromisoformat(v) - generado for v in re.findall(r"INSERT INTO public\.tarea \(.*?VALUES \(.*?'(\d{4}-\d{2}-\d{2})'", datos)}
+    assert {timedelta(days=-2), timedelta(days=0), timedelta(days=3), timedelta(days=12)} <= vencimientos
 
 
 def test_s25_los_datos_de_demo_traen_a_exp_2026_0147_con_el_anexo_1(datos):
