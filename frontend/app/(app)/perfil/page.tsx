@@ -8,14 +8,15 @@ import { ETIQUETA_ROL } from "@/lib/etiquetas";
 import type { Usuario } from "@/lib/tipos";
 import { EncabezadoPagina, Vista } from "@/componentes/Vista";
 import { Campo } from "@/componentes/Campo";
-import { ErrorFormulario, Exito } from "@/componentes/Avisos";
+import { ErrorFormulario } from "@/componentes/Avisos";
+import { useNotificar } from "@/componentes/Notificaciones";
 
 export default function PaginaPerfil() {
   const { usuario, reemplazarUsuario } = useSesion();
   const [correo, setCorreo] = useState("");
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [exito, setExito] = useState(false);
+  const notificar = useNotificar();
   const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
@@ -29,7 +30,6 @@ export default function PaginaPerfil() {
   async function guardar(evento: FormEvent) {
     evento.preventDefault();
     setError(null);
-    setExito(false);
     setGuardando(true);
     try {
       const actualizado = await api<Usuario>("/perfil", {
@@ -37,7 +37,7 @@ export default function PaginaPerfil() {
         cuerpo: { contacto_email: correo.trim(), contacto_visible: visible },
       });
       reemplazarUsuario(actualizado);
-      setExito(true);
+      notificar.exito("Los cambios se guardaron y quedaron registrados en la auditoría.");
     } catch (e) {
       setError(e);
     } finally {
@@ -91,7 +91,6 @@ export default function PaginaPerfil() {
                 Mostrar mi correo en los resúmenes de mis casos cerrados
               </label>
               <ErrorFormulario error={error} />
-              {exito ? <Exito>Los cambios se guardaron y quedaron registrados en la auditoría.</Exito> : null}
               <div className="acciones">
                 <button type="submit" className="boton boton-principal" disabled={guardando}>
                   {guardando ? "Guardando…" : "Guardar cambios"}

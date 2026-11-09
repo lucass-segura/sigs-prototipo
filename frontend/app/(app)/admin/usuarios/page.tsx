@@ -11,8 +11,11 @@ import type { Rol, UsuarioAdministrado } from "@/lib/tipos";
 import { EncabezadoPagina, Vista } from "@/componentes/Vista";
 import { ProtegerRol } from "@/componentes/ProtegerRol";
 import { Campo } from "@/componentes/Campo";
-import { ErrorFormulario, Exito } from "@/componentes/Avisos";
-import { Cargando, ErrorCarga, Vacio } from "@/componentes/Estados";
+import { ErrorFormulario } from "@/componentes/Avisos";
+import { ErrorCarga, Vacio } from "@/componentes/Estados";
+import { EsqueletoTabla } from "@/componentes/Esqueletos";
+import { useConfirmar } from "@/componentes/Confirmar";
+import { useNotificar } from "@/componentes/Notificaciones";
 
 function estadoDeCuenta(u: UsuarioAdministrado): { texto: string; clase: string } {
   if (!u.activo) return { texto: "Dado de baja", clase: "insignia-estado-anulado" };
@@ -29,7 +32,8 @@ function Usuarios() {
   const [email, setEmail] = useState("");
   const [rol, setRol] = useState<Extract<Rol, "perito" | "administrador">>("perito");
   const [errorAlta, setErrorAlta] = useState<unknown>(null);
-  const [exito, setExito] = useState<string | null>(null);
+  const confirmarAccion = useConfirmar();
+  const notificar = useNotificar();
   const [creando, setCreando] = useState(false);
   const [errorAccion, setErrorAccion] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState<number | null>(null);
@@ -37,11 +41,10 @@ function Usuarios() {
   async function alta(evento: FormEvent) {
     evento.preventDefault();
     setErrorAlta(null);
-    setExito(null);
     setCreando(true);
     try {
       await api("/admin/usuarios", { cuerpo: { nombre: nombre.trim(), email: email.trim(), rol } });
-      setExito(`Se dio de alta a ${email.trim()}. Le enviamos el enlace de primer ingreso.`);
+      notificar.exito(`Se dio de alta a ${email.trim()}. Le enviamos el enlace de primer ingreso.`);
       setNombre("");
       setEmail("");
       setRol("perito");
@@ -53,14 +56,18 @@ function Usuarios() {
     }
   }
 
-  async function accion(u: UsuarioAdministrado, ruta: "baja" | "bloquear" | "reenviar-enlace", confirmacion: string | null, mensaje?: string) {
-    if (confirmacion && !window.confirm(confirmacion)) return;
+  async function accion(
+    u: UsuarioAdministrado,
+    ruta: "baja" | "bloquear" | "reenviar-enlace",
+    confirmacion: { titulo: string; mensaje: string; confirmar: string } | null,
+    mensaje?: string,
+  ) {
+    if (confirmacion && !(await confirmarAccion({ ...confirmacion, peligro: true }))) return;
     setErrorAccion(null);
-    setExito(null);
     setOcupado(u.id);
     try {
       await api(`/admin/usuarios/${u.id}/${ruta}`, { metodo: "POST", cuerpo: {} });
-      if (mensaje) setExito(mensaje);
+      if (mensaje) notificar.exito(mensaje);
       lista.recargar();
     } catch (e) {
       setErrorAccion(e);
@@ -77,7 +84,6 @@ function Usuarios() {
       />
       <div className="rejilla rejilla-principal">
         <div className="columna">
-          {exito ? <Exito>{exito}</Exito> : null}
           <ErrorFormulario error={errorAccion} />
           <section className="tarjeta">
             <div className="tarjeta-cabecera">
@@ -85,7 +91,7 @@ function Usuarios() {
             </div>
             {lista.cargando && !lista.datos ? (
               <div className="tarjeta-cuerpo">
-                <Cargando />
+                <EsqueletoTabla filas={4} columnas={5} etiqueta="Cargando usuarios…" />
               </div>
             ) : null}
             {lista.error ? (
@@ -96,7 +102,7 @@ function Usuarios() {
             {lista.datos && usuarios.length === 0 ? <Vacio>No hay usuarios en el espacio.</Vacio> : null}
             {usuarios.length > 0 ? (
               <div className="tabla-contenedor">
-                <table className="tabla">
+                <table className="tabla tabla-apilada">
                   <thead>
                     <tr>
                       <th>Nombre</th>
@@ -112,10 +118,10 @@ function Usuarios() {
                       const esYo = u.id === usuario?.id;
                       return (
                         <tr key={u.id}>
-                          <td>{u.nombre}</td>
-                          <td>{u.email}</td>
-                          <td>{ETIQUETA_ROL[u.rol]}</td>
-                          <td>
+                          <td data-label="Nombre">{u.nombre}</td>
+                          <td data-label="Correo">{u.email}</td>
+                          <td data-label="Rol">{ETIQUETA_ROL[u.rol]}</td>
+                          <td data-label="Estado">
                             <span className={`insignia ${estado.clase}`}>{estado.texto}</span>
                             {u.bloqueado_en ? <div className="nota-pequena">desde {formatoFechaHora(u.bloqueado_en)}</div> : null}
                             {u.intentos_fallidos > 0 ? (
@@ -146,7 +152,11 @@ function Usuarios() {
                                       void accion(
                                         u,
                                         "bloquear",
-                                        `¿Bloquear la cuenta de ${u.nombre} y cerrar todas sus sesiones?`,
+                                        {
+                                          titulo: `¿Bloquear a ${u.nombre}?`,
+                                          mensaje: "Se bloquea la cuenta y se cierran todas sus sesiones abiertas. Puede volver a ingresar con un enlace de restablecimiento.",
+                                          confirmar: "Bloquear y cerrar sesiones",
+                                        },
                                         `Se bloqueó la cuenta de ${u.nombre} y se cerraron sus sesiones.`,
                                       )
                                     }
@@ -161,7 +171,11 @@ function Usuarios() {
                                       void accion(
                                         u,
                                         "baja",
-                                        `¿Dar de baja a ${u.nombre}? No va a poder ingresar y se conservan su historial y su auditoría.`,
+                                        {
+                                          titulo: `¿Dar de baja a ${u.nombre}?`,
+                                          mensaje: "No va a poder ingresar más. Se conservan su historial y su auditoría.",
+                                          confirmar: "Dar de baja",
+                                        },
                                         `Se dio de baja a ${u.nombre}.`,
                                       )
                                     }

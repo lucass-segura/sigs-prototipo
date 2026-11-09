@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { api, erroresDeCampo } from "@/lib/api";
+import { api, ErrorApi, erroresDeCampo } from "@/lib/api";
 import { formatoFecha, formatoFechaHora, formatoHora } from "@/lib/formato";
 import { ETIQUETA_ROL_PERSONA, ETIQUETA_TIPO_BIEN } from "@/lib/etiquetas";
 import type { Siniestro } from "@/lib/tipos";
 import { Campo } from "../Campo";
 import { ErrorFormulario } from "../Avisos";
+import { useConfirmar } from "../Confirmar";
+import { useNotificar } from "../Notificaciones";
 
 interface Props {
   siniestro: Siniestro;
@@ -17,6 +19,8 @@ interface Props {
 }
 
 export function PestanaDatos({ siniestro, alCambiar, alConfirmar }: Props) {
+  const confirmarAccion = useConfirmar();
+  const notificar = useNotificar();
   const [error, setError] = useState<unknown>(null);
   const [trabajando, setTrabajando] = useState(false);
   const [anulando, setAnulando] = useState(false);
@@ -31,6 +35,7 @@ export function PestanaDatos({ siniestro, alCambiar, alConfirmar }: Props) {
     setTrabajando(true);
     try {
       await api(`/siniestros/${siniestro.id}/confirmar`, { metodo: "POST", cuerpo: {} });
+      notificar.exito("Siniestro confirmado. Ya se buscaron coincidencias y se calculó el indicador.");
       alConfirmar();
     } catch (e) {
       setError(e);
@@ -41,11 +46,30 @@ export function PestanaDatos({ siniestro, alCambiar, alConfirmar }: Props) {
 
   async function anular() {
     setError(null);
+    if (!motivo.trim()) {
+      setError(new ErrorApi(400, null, [{ ruta: "motivo", mensaje: "El motivo de la anulación es obligatorio." }]));
+      return;
+    }
+    const si = await confirmarAccion({
+      titulo: `¿Anular ${siniestro.numero_expediente}?`,
+      mensaje: (
+        <>
+          <p>La anulación es por carga errónea. El registro y la auditoría se conservan, pero el caso deja de contar como antecedente y no se puede deshacer.</p>
+          <p>
+            <strong>Motivo:</strong> {motivo.trim()}
+          </p>
+        </>
+      ),
+      confirmar: "Anular expediente",
+      peligro: true,
+    });
+    if (!si) return;
     setTrabajando(true);
     try {
       await api(`/siniestros/${siniestro.id}/anular`, { metodo: "POST", cuerpo: { motivo: motivo.trim() } });
       setAnulando(false);
       setMotivo("");
+      notificar.exito(`Se anuló ${siniestro.numero_expediente}.`);
       alCambiar();
     } catch (e) {
       setError(e);

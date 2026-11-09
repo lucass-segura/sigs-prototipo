@@ -32,7 +32,7 @@ export function Vista({
         </nav>
         {accion ? <div className="barra-accion">{accion}</div> : null}
       </header>
-      <main className="pagina">{children}</main>
+      <main id="contenido-principal" className="pagina" tabIndex={-1}>{children}</main>
     </>
   );
 }

@@ -9,8 +9,10 @@ import type { EspacioAdministrado } from "@/lib/tipos";
 import { EncabezadoPagina, Vista } from "@/componentes/Vista";
 import { ProtegerRol } from "@/componentes/ProtegerRol";
 import { Campo } from "@/componentes/Campo";
-import { ErrorFormulario, Exito } from "@/componentes/Avisos";
-import { Cargando, ErrorCarga, Vacio } from "@/componentes/Estados";
+import { ErrorFormulario } from "@/componentes/Avisos";
+import { ErrorCarga, Vacio } from "@/componentes/Estados";
+import { EsqueletoTabla } from "@/componentes/Esqueletos";
+import { useNotificar } from "@/componentes/Notificaciones";
 
 function Espacios() {
   const lista = useApi<unknown>("/admin/espacios");
@@ -19,19 +21,18 @@ function Espacios() {
   const [adminNombre, setAdminNombre] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [exito, setExito] = useState<string | null>(null);
+  const notificar = useNotificar();
   const [creando, setCreando] = useState(false);
 
   async function crear(evento: FormEvent) {
     evento.preventDefault();
     setError(null);
-    setExito(null);
     setCreando(true);
     try {
       await api("/admin/espacios", {
         cuerpo: { nombre: nombre.trim(), admin_nombre: adminNombre.trim(), admin_email: adminEmail.trim() },
       });
-      setExito(`Se creó el espacio «${nombre.trim()}» y se envió el enlace de primer ingreso a ${adminEmail.trim()}.`);
+      notificar.exito(`Se creó el espacio «${nombre.trim()}» y se envió el enlace de primer ingreso a ${adminEmail.trim()}.`);
       setNombre("");
       setAdminNombre("");
       setAdminEmail("");
@@ -51,15 +52,12 @@ function Espacios() {
       />
       <div className="rejilla rejilla-principal">
         <div className="columna">
-          {exito ? <Exito>{exito}</Exito> : null}
           <section className="tarjeta">
             <div className="tarjeta-cabecera">
               <h2>Espacios</h2>
             </div>
             {lista.cargando && !lista.datos ? (
-              <div className="tarjeta-cuerpo">
-                <Cargando />
-              </div>
+              <EsqueletoTabla filas={3} columnas={3} etiqueta="Cargando espacios…" />
             ) : null}
             {lista.error ? (
               <div className="tarjeta-cuerpo">
@@ -69,7 +67,7 @@ function Espacios() {
             {lista.datos && espacios.length === 0 ? <Vacio>Todavía no hay espacios.</Vacio> : null}
             {espacios.length > 0 ? (
               <div className="tabla-contenedor">
-                <table className="tabla">
+                <table className="tabla tabla-apilada">
                   <thead>
                     <tr>
                       <th>Espacio</th>
@@ -80,9 +78,9 @@ function Espacios() {
                   <tbody>
                     {espacios.map((e) => (
                       <tr key={e.id}>
-                        <td>{e.nombre}</td>
-                        <td>{e.cantidad_usuarios ?? e.usuarios ?? "—"}</td>
-                        <td>{e.creado_en ? formatoFecha(e.creado_en) : "—"}</td>
+                        <td data-label="Espacio">{e.nombre}</td>
+                        <td data-label="Usuarios">{e.cantidad_usuarios ?? e.usuarios ?? "—"}</td>
+                        <td data-label="Creado">{e.creado_en ? formatoFecha(e.creado_en) : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

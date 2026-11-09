@@ -14,8 +14,11 @@ import type {
   Siniestro,
 } from "@/lib/tipos";
 import { AvisoAmbar, ErrorFormulario } from "../Avisos";
-import { Cargando, ErrorCarga } from "../Estados";
+import { ErrorCarga } from "../Estados";
+import { EsqueletoLineas } from "../Esqueletos";
+import { useNotificar } from "../Notificaciones";
 import { InsigniaEstado, InsigniaPrioridad } from "../Insignias";
+import { FilaEnlace } from "../FilaActivable";
 
 function ordenarSenales(senales: Senal[]): Senal[] {
   const peso = { activada: 0, no_evaluable: 1, no_activada: 2 } as const;
@@ -109,6 +112,7 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
   const evaluacion = useApi<Evaluacion>(confirmado ? `${base}/evaluacion` : null);
   const historial = useApi<ResumenEvaluacion[]>(confirmado ? `${base}/evaluaciones` : null);
   const coincidencias = useApi<RespuestaCoincidencias>(confirmado ? `${base}/coincidencias?pagina=${pagina}` : null);
+  const notificar = useNotificar();
   const [recalculando, setRecalculando] = useState(false);
   const [errorRecalculo, setErrorRecalculo] = useState<unknown>(null);
 
@@ -119,6 +123,7 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
       await api(`${base}/recalcular`, { metodo: "POST", cuerpo: {} });
       evaluacion.recargar();
       historial.recargar();
+      notificar.exito("Se recalculó el indicador con las reglas vigentes.");
     } catch (e) {
       setErrorRecalculo(e);
     } finally {
@@ -149,7 +154,7 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
   return (
     <div className="rejilla rejilla-analisis">
       <div className="columna">
-        {evaluacion.cargando ? <Cargando /> : null}
+        {evaluacion.cargando && !evaluacion.datos ? <EsqueletoLineas lineas={5} etiqueta="Cargando el análisis…" /> : null}
         {evaluacion.error && evaluacion.error.estado !== 404 ? <ErrorCarga error={evaluacion.error} /> : null}
         {evaluacion.error?.estado === 404 ? <AvisoAmbar>Todavía no hay una evaluación calculada para este expediente.</AvisoAmbar> : null}
         {ev ? <TarjetaIndicador evaluacion={ev} /> : null}
@@ -225,7 +230,7 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
           {co && co.resultados.length > 0 ? (
             <>
               <div className="tabla-contenedor">
-                <table className="tabla">
+                <table className="tabla tabla-apilada">
                   <thead>
                     <tr>
                       <th>Antecedente</th>
@@ -237,11 +242,15 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
                   </thead>
                   <tbody>
                     {co.resultados.map((c) => (
-                      <tr key={c.antecedente_id}>
-                        <td className="mono-celda">{c.numero_expediente}</td>
-                        <td>{c.descripcion_vinculo}</td>
-                        <td>{formatoMesAnioCorto(c.fecha_hecho)}</td>
-                        <td>
+                      <FilaEnlace
+                        key={c.antecedente_id}
+                        href={`/expedientes/${siniestro.id}/antecedentes/${c.antecedente_id}`}
+                        etiqueta={`Ver el resumen del antecedente ${c.numero_expediente}`}
+                      >
+                        <td className="mono-celda" data-label="Antecedente">{c.numero_expediente}</td>
+                        <td data-label="Vínculo">{c.descripcion_vinculo}</td>
+                        <td data-label="Fecha">{formatoMesAnioCorto(c.fecha_hecho)}</td>
+                        <td data-label="Resultado">
                           {c.resultado_reclamo ? ETIQUETA_RESULTADO[c.resultado_reclamo] : <InsigniaEstado estado={c.estado} />}
                         </td>
                         <td>
@@ -252,7 +261,7 @@ export function PestanaAnalisis({ siniestro }: { siniestro: Siniestro }) {
                             Ver resumen
                           </Link>
                         </td>
-                      </tr>
+                      </FilaEnlace>
                     ))}
                   </tbody>
                 </table>

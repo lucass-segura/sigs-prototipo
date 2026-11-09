@@ -101,6 +101,23 @@ export function estaVencida(valor: string | null | undefined): boolean {
   return dia !== "" && dia < hoyISO();
 }
 
+/** Suma días a una fecha `AAAA-MM-DD` (calendario, sin horas de verano de por medio). */
+export function sumarDias(dia: string, dias: number): string {
+  const [a, m, d] = dia.split("-").map(Number);
+  const fecha = new Date(Date.UTC(a, m - 1, d + dias));
+  return fecha.toISOString().slice(0, 10);
+}
+
+/** Días de calendario entre hoy y la fecha: negativo si ya pasó, 0 si es hoy. `null` si no hay fecha. */
+export function diasDesdeHoy(valor: string | null | undefined): number | null {
+  if (!valor) return null;
+  const dia = aInputFecha(valor);
+  if (!dia) return null;
+  const [a1, m1, d1] = dia.split("-").map(Number);
+  const [a2, m2, d2] = hoyISO().split("-").map(Number);
+  return Math.round((Date.UTC(a1, m1 - 1, d1) - Date.UTC(a2, m2 - 1, d2)) / 86_400_000);
+}
+
 /** 7,0 */
 export function formatoDecimal(n: number, decimales = 1): string {
   return n.toFixed(decimales).replace(".", ",");

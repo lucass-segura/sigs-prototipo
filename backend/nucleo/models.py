@@ -269,6 +269,8 @@ class Documento(models.Model):
     tipo_contenido = models.CharField(max_length=120, blank=True, default="")
     tamanio = models.BigIntegerField(default=0)
     subido_por = models.ForeignKey(Usuario, null=True, on_delete=models.PROTECT, related_name="documentos_subidos")
+    # Escena del croquis (S29): solo los documentos de tipo «Croquis» creados por el editor la tienen.
+    escena = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "documento"

@@ -11,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .. import auditoria
+from ..archivos import TEXTO, es_png, previsualizable_por_declaracion, tipo_para_servir_en_linea
+from ..croquis import validar_escena
 from ..models import Documento, Nota, Tarea, TareaCambio, Usuario
 from ..permisos import exigir_perito, no_encontrado, prohibido, siniestro_asignado
 from ..serializadores import persona_simple
@@ -27,6 +29,10 @@ def documento_json(documento):
         "estado": documento.estado,
         "recibido_en": documento.recibido_en,
         "tamanio": documento.tamanio,
+        # Tipo seguro declarado al subir (la firma se comprueba al pedir la vista previa) o `None`.
+        "previsualizable": previsualizable_por_declaracion(documento.tipo_contenido),
+        # `true` si es un croquis del editor, que se puede reabrir (S29).
+        "tiene_escena": documento.escena is not None,
     }
 
 
@@ -66,29 +72,133 @@ class Documentos(APIView):
         return Response(documento_json(documento), status=201)
 
 
+def documento_propio(solicitud, pk, accion):
+    """Documento y ruta del archivo, solo para el perito asignado. Para cualquier otro el documento «no existe»."""
+    documento = Documento.objects.select_related("siniestro").filter(pk=pk).first()
+    usuario = solicitud.user
+    if documento is None or usuario.rol != Usuario.PERITO or documento.siniestro.perito_id != usuario.id:
+        raise no_encontrado("No se encontró el documento.", accion, f"documento:{pk}")
+    base = Path(settings.DOCUMENTOS_DIR).resolve()
+    ruta = (base / documento.archivo_ref).resolve()
+    if base not in ruta.parents or not ruta.is_file():
+        raise no_encontrado("No se encontró el documento.", accion, f"documento:{pk}")
+    return documento, ruta
+
+
 class DescargarDocumento(APIView):
     """Descarga con verificación de permiso. Para cualquiera que no sea el responsable el documento «no existe»."""
 
     def get(self, solicitud, pk):
         accion = "descargar_documento"
-        documento = Documento.objects.select_related("siniestro").filter(pk=pk).first()
         usuario = solicitud.user
-        if (
-            documento is None
-            or usuario.rol != Usuario.PERITO
-            or documento.siniestro.perito_id != usuario.id
-        ):
-            raise no_encontrado("No se encontró el documento.", accion, f"documento:{pk}")
-        base = Path(settings.DOCUMENTOS_DIR).resolve()
-        ruta = (base / documento.archivo_ref).resolve()
-        if base not in ruta.parents or not ruta.is_file():
-            raise no_encontrado("No se encontró el documento.", accion, f"documento:{pk}")
+        documento, ruta = documento_propio(solicitud, pk, accion)
         auditoria.registrar(usuario, accion, f"documento:{documento.pk}", siniestro_origen=documento.siniestro)
         respuesta = FileResponse(
             open(ruta, "rb"), as_attachment=True, filename=documento.nombre_original or f"documento-{documento.pk}",
             content_type=documento.tipo_contenido or "application/octet-stream",
         )
         respuesta["X-Content-Type-Options"] = "nosniff"
+        return respuesta
+
+
+class GuardarCroquis(APIView):
+    """Guarda un croquis (S29): el PNG exportado es el archivo del documento y la escena JSON queda en `documento.escena`.
+
+    Cada guardado crea un documento nuevo, también al editar uno existente (`basado_en`): nada se pisa.
+    """
+
+    def post(self, solicitud, pk):
+        siniestro = siniestro_asignado(solicitud, pk, "subir_croquis")
+        errores = {}
+        imagen = solicitud.FILES.get("imagen")
+        contenido = b""
+        if imagen is None or imagen.size == 0:
+            errores["imagen"] = ["Falta la imagen del croquis."]
+        elif imagen.size > settings.CROQUIS_IMAGEN_MAXIMO:
+            errores["imagen"] = [f"La imagen supera los {settings.CROQUIS_IMAGEN_MAXIMO // (1024 * 1024)} MB."]
+        else:
+            contenido = imagen.read()
+            if not es_png(contenido):
+                errores["imagen"] = ["La imagen del croquis tiene que ser un PNG."]
+        escena = None
+        try:
+            escena = validar_escena(str(solicitud.data.get("escena", "")))
+        except serializers.ValidationError as e:
+            errores.update(e.detail)
+        base = None
+        crudo = solicitud.data.get("basado_en")
+        if crudo not in (None, ""):
+            try:
+                base = Documento.objects.filter(pk=int(crudo), siniestro=siniestro, escena__isnull=False).first()
+            except (TypeError, ValueError):
+                base = None
+            if base is None:
+                errores["basado_en"] = ["El croquis original no existe en este expediente."]
+        if errores:
+            raise serializers.ValidationError(errores)
+        carpeta = Path(settings.DOCUMENTOS_DIR) / str(siniestro.pk)
+        carpeta.mkdir(parents=True, exist_ok=True)
+        nombre = uuid.uuid4().hex
+        (carpeta / nombre).write_bytes(contenido)
+        ahora = timezone.now()
+        documento = Documento.objects.create(
+            siniestro=siniestro, tipo="Croquis", archivo_ref=f"{siniestro.pk}/{nombre}", estado="recibido", recibido_en=ahora,
+            nombre_original=f"croquis-{timezone.localtime(ahora):%Y%m%d-%H%M%S}.png", tipo_contenido="image/png",
+            tamanio=len(contenido), subido_por=solicitud.user, escena=escena,
+        )
+        detalle = {"basado_en": base.pk} if base else None
+        auditoria.registrar(solicitud.user, "subir_croquis", f"documento:{documento.pk}", siniestro_origen=siniestro, detalle=detalle)
+        return Response(documento_json(documento), status=201)
+
+
+class EscenaDocumento(APIView):
+    """Escena JSON de un croquis, para reabrirlo en el editor. Mismo permiso que la descarga."""
+
+    def get(self, solicitud, pk):
+        accion = "ver_escena_croquis"
+        documento, _ = documento_propio(solicitud, pk, accion)
+        if documento.escena is None:
+            raise no_encontrado("Este documento no tiene una escena de croquis.", accion, f"documento:{pk}", documento.siniestro)
+        auditoria.registrar(solicitud.user, accion, f"documento:{documento.pk}", siniestro_origen=documento.siniestro)
+        respuesta = Response(documento.escena)
+        respuesta["Cache-Control"] = "private, no-store"
+        return respuesta
+
+
+# Política de contenido de la vista previa: el archivo no puede ejecutar nada ni cargar recursos externos.
+CSP_VISTA_PREVIA = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+# El visor de PDF del navegador no funciona dentro de un `sandbox`: se mantiene el resto de la política.
+CSP_VISTA_PREVIA_PDF = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+
+
+class VerDocumento(APIView):
+    """Vista previa en línea (S28): mismo permiso y auditoría que la descarga, solo para tipos seguros.
+
+    El tipo se decide con el tipo guardado y con la firma del contenido. SVG, HTML, XML, scripts y todo lo demás se
+    rechazan con 415 y quedan auditados: esos archivos solo se descargan como adjunto.
+    """
+
+    def get(self, solicitud, pk):
+        accion = "ver_documento"
+        usuario = solicitud.user
+        documento, ruta = documento_propio(solicitud, pk, accion)
+        tipo = tipo_para_servir_en_linea(documento.tipo_contenido, ruta)
+        if tipo is None:
+            auditoria.rechazar(usuario, accion, f"documento:{documento.pk}", documento.siniestro, {"estado": 415})
+            respuesta = Response(
+                {"detalle": "Este tipo de archivo no se puede previsualizar. Descargalo para verlo."}, status=415
+            )
+            respuesta["X-Content-Type-Options"] = "nosniff"
+            return respuesta
+        auditoria.registrar(usuario, accion, f"documento:{documento.pk}", siniestro_origen=documento.siniestro)
+        respuesta = FileResponse(
+            open(ruta, "rb"), as_attachment=False, filename=documento.nombre_original or f"documento-{documento.pk}",
+            content_type="text/plain; charset=utf-8" if tipo == TEXTO else tipo,
+        )
+        respuesta["X-Content-Type-Options"] = "nosniff"
+        respuesta["Content-Security-Policy"] = CSP_VISTA_PREVIA_PDF if tipo == "application/pdf" else CSP_VISTA_PREVIA
+        respuesta["X-Frame-Options"] = "SAMEORIGIN"
+        respuesta["Cache-Control"] = "private, no-store"
         return respuesta
 
 
@@ -187,14 +297,22 @@ class DetalleTarea(APIView):
 
 
 class MisTareas(APIView):
-    """Tareas no hechas de los expedientes propios."""
+    """Tareas de los expedientes propios. Sin parámetros, solo las no hechas.
+
+    `?estado=` acepta `pendiente`, `en_curso`, `hecha` o `todas` (S26).
+    """
 
     def get(self, solicitud):
         usuario = exigir_perito(solicitud, "listar_tareas")
-        tareas = (
-            Tarea.objects.filter(siniestro__perito=usuario).exclude(estado=Tarea.HECHA)
-            .select_related("siniestro").order_by("vence_en", "id")
-        )
+        estado = solicitud.query_params.get("estado")
+        validos = [e for e, _ in Tarea.ESTADOS]
+        if estado is not None and estado not in (*validos, "todas"):
+            raise serializers.ValidationError({"estado": ["El estado tiene que ser pendiente, en_curso, hecha o todas."]})
+        tareas = Tarea.objects.filter(siniestro__perito=usuario).select_related("siniestro")
+        if estado in validos:
+            tareas = tareas.filter(estado=estado)
+        elif estado is None:
+            tareas = tareas.exclude(estado=Tarea.HECHA)
         # las que no tienen vencimiento van al final
         tareas = sorted(tareas, key=lambda t: (t.vence_en is None, t.vence_en, t.id))
         cuerpo = []

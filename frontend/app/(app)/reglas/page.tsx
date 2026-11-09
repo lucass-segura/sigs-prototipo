@@ -10,7 +10,8 @@ import type { ConjuntoReglas, CuerpoVersionReglas, RespuestaReglas, Topes } from
 import { EncabezadoPagina, Vista } from "@/componentes/Vista";
 import { Campo } from "@/componentes/Campo";
 import { AvisoAmbar, AvisoVerde, ErrorFormulario, Exito } from "@/componentes/Avisos";
-import { Cargando, ErrorCarga } from "@/componentes/Estados";
+import { ErrorCarga } from "@/componentes/Estados";
+import { EsqueletoLineas } from "@/componentes/Esqueletos";
 
 function siguienteVersion(version: string): string {
   const m = /^(.*?)(\d+)\.(\d+)$/.exec(version);
@@ -228,7 +229,7 @@ export default function PaginaReglas() {
         ) : undefined
       }
     >
-      {reglas.cargando && !reglas.datos ? <Cargando /> : null}
+      {reglas.cargando && !reglas.datos ? <EsqueletoLineas lineas={6} etiqueta="Cargando las reglas…" /> : null}
       {reglas.error ? <ErrorCarga error={reglas.error} /> : null}
       {mostrado ? (
         <>

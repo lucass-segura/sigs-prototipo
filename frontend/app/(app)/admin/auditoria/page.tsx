@@ -10,7 +10,8 @@ import { EncabezadoPagina, Vista } from "@/componentes/Vista";
 import { ProtegerRol } from "@/componentes/ProtegerRol";
 import { Campo } from "@/componentes/Campo";
 import { AvisoVerde } from "@/componentes/Avisos";
-import { Cargando, ErrorCarga, Vacio } from "@/componentes/Estados";
+import { ErrorCarga, Vacio } from "@/componentes/Estados";
+import { EsqueletoTabla } from "@/componentes/Esqueletos";
 
 interface Filtros {
   usuario: string;
@@ -83,9 +84,7 @@ function Auditoria() {
         </form>
 
         {cargando && !datos ? (
-          <div className="tarjeta-cuerpo">
-            <Cargando />
-          </div>
+          <EsqueletoTabla filas={6} columnas={6} etiqueta="Cargando la auditoría…" />
         ) : null}
         {error ? (
           <div className="tarjeta-cuerpo">
@@ -96,7 +95,7 @@ function Auditoria() {
         {datos && datos.resultados.length > 0 ? (
           <>
             <div className="tabla-contenedor">
-              <table className="tabla">
+              <table className="tabla tabla-apilada">
                 <thead>
                   <tr>
                     <th>Fecha</th>
@@ -110,8 +109,8 @@ function Auditoria() {
                 <tbody>
                   {datos.resultados.map((r) => (
                     <tr key={r.id}>
-                      <td>{formatoFechaHora(r.fecha)}</td>
-                      <td>
+                      <td data-label="Fecha">{formatoFechaHora(r.fecha)}</td>
+                      <td data-label="Usuario">
                         {r.usuario ? (
                           <>
                             {r.usuario.nombre}
@@ -121,12 +120,12 @@ function Auditoria() {
                           "—"
                         )}
                       </td>
-                      <td className="mono-celda">{r.accion}</td>
-                      <td className="mono-celda">{r.objeto || "—"}</td>
-                      <td>
+                      <td className="mono-celda" data-label="Acción">{r.accion}</td>
+                      <td className="mono-celda" data-label="Objeto">{r.objeto || "—"}</td>
+                      <td data-label="Resultado">
                         <span className={`insignia insignia-${r.resultado}`}>{r.resultado === "permitido" ? "Permitido" : "Rechazado"}</span>
                       </td>
-                      <td className="mono-celda">{r.siniestro_origen?.numero_expediente ?? "—"}</td>
+                      <td className="mono-celda" data-label="Siniestro de origen">{r.siniestro_origen?.numero_expediente ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -119,6 +119,8 @@ APP_URL = os.environ.get("APP_URL", "http://localhost").rstrip("/")
 # Documentos privados: volumen sin URL pública. Solo se descargan por la API.
 DOCUMENTOS_DIR = os.environ.get("DOCUMENTOS_DIR", str(BASE_DIR / "documentos"))
 DOCUMENTO_TAMANIO_MAXIMO = 15 * 1024 * 1024
+CROQUIS_IMAGEN_MAXIMO = 8 * 1024 * 1024  # PNG exportado por el editor de croquis (S29)
+CROQUIS_ESCENA_MAXIMO = 300 * 1024  # escena JSON del croquis, en bytes
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 

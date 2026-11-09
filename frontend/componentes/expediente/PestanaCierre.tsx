@@ -9,7 +9,10 @@ import { ESCALA_VALORACION, ETIQUETA_RESULTADO, textoValoracion } from "@/lib/et
 import type { Cierre, Documento, ResultadoReclamo, RespuestaCierre, Siniestro } from "@/lib/tipos";
 import { Campo } from "../Campo";
 import { AvisoAmbar, ErrorFormulario } from "../Avisos";
-import { Cargando, ErrorCarga } from "../Estados";
+import { ErrorCarga } from "../Estados";
+import { EsqueletoLineas } from "../Esqueletos";
+import { useConfirmar } from "../Confirmar";
+import { useNotificar } from "../Notificaciones";
 
 const RESULTADOS = Object.keys(ETIQUETA_RESULTADO) as ResultadoReclamo[];
 const MAXIMO_JUSTIFICACION = 500;
@@ -326,6 +329,8 @@ export function PestanaCierre({ siniestro, alCambiar }: { siniestro: Siniestro; 
   const [cambiando, setCambiando] = useState(false);
   const [errorArchivo, setErrorArchivo] = useState<unknown>(null);
   const [archivando, setArchivando] = useState(false);
+  const confirmarAccion = useConfirmar();
+  const notificar = useNotificar();
 
   if (siniestro.estado === "borrador") {
     return <AvisoAmbar>El cierre está disponible cuando el siniestro está confirmado y en análisis.</AvisoAmbar>;
@@ -333,7 +338,7 @@ export function PestanaCierre({ siniestro, alCambiar }: { siniestro: Siniestro; 
   if (siniestro.estado === "anulado") {
     return <AvisoAmbar>Un expediente anulado no se cierra.</AvisoAmbar>;
   }
-  if (cierre.cargando && !cierre.datos) return <Cargando />;
+  if (cierre.cargando && !cierre.datos) return <EsqueletoLineas lineas={6} etiqueta="Cargando el cierre…" />;
   if (cierre.error) return <ErrorCarga error={cierre.error} />;
 
   const vigente = cierre.datos?.vigente ?? null;
@@ -346,11 +351,17 @@ export function PestanaCierre({ siniestro, alCambiar }: { siniestro: Siniestro; 
   }
 
   async function archivar() {
-    if (!window.confirm("¿Archivar el expediente? Se conserva todo y sigue contando como antecedente.")) return;
+    const si = await confirmarAccion({
+      titulo: "¿Archivar el expediente?",
+      mensaje: "Se conserva todo y el caso sigue contando como antecedente. Solo se puede cambiar el cierre con un motivo.",
+      confirmar: "Archivar",
+    });
+    if (!si) return;
     setErrorArchivo(null);
     setArchivando(true);
     try {
       await api(`/siniestros/${siniestro.id}/archivar`, { metodo: "POST", cuerpo: {} });
+      notificar.exito(`Se archivó ${siniestro.numero_expediente}.`);
       cierre.recargar();
       alCambiar();
     } catch (e) {

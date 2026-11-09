@@ -9,7 +9,9 @@ import { ETIQUETA_ESTADO } from "@/lib/etiquetas";
 import type { EstadoSiniestro, RespuestaPanel } from "@/lib/tipos";
 import { EncabezadoPagina, Vista } from "@/componentes/Vista";
 import { ProtegerRol } from "@/componentes/ProtegerRol";
-import { Cargando, ErrorCarga, Vacio } from "@/componentes/Estados";
+import { ErrorCarga } from "@/componentes/Estados";
+import { EsqueletoTabla, EsqueletoTarjetas } from "@/componentes/Esqueletos";
+import { FilaEnlace } from "@/componentes/FilaActivable";
 import { InsigniaEstado, InsigniaPrioridad } from "@/componentes/Insignias";
 import { Campo } from "@/componentes/Campo";
 
@@ -43,7 +45,14 @@ function PanelExpedientes() {
         titulo="Mis expedientes"
         subtitulo={`Casos asignados en el espacio ${usuario?.espacio?.nombre ?? ""}, ordenados por prioridad.`}
       />
-      {cargando ? <Cargando /> : null}
+      {cargando && !datos ? (
+        <>
+          <EsqueletoTarjetas etiqueta="Cargando el resumen…" />
+          <section className="tarjeta">
+            <EsqueletoTabla filas={6} columnas={7} etiqueta="Cargando expedientes…" />
+          </section>
+        </>
+      ) : null}
       {error ? <ErrorCarga error={error} /> : null}
       {datos ? (
         <>
@@ -91,10 +100,34 @@ function PanelExpedientes() {
               </div>
             ) : null}
             {filas.length === 0 ? (
-              <Vacio>{datos.resultados.length === 0 ? "Todavía no tenés expedientes asignados." : "Ningún expediente coincide con el filtro."}</Vacio>
+              <div className="vacio-guia">
+                {datos.resultados.length === 0 ? (
+                  <>
+                    <strong>Todavía no tenés expedientes asignados.</strong>
+                    <p>Registrá el primer siniestro: queda en borrador hasta que lo confirmes.</p>
+                    <Link href="/expedientes/nuevo" className="boton boton-principal">
+                      Nuevo siniestro
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <strong>Ningún expediente coincide con el filtro.</strong>
+                    <button
+                      type="button"
+                      className="boton"
+                      onClick={() => {
+                        setEstado("");
+                        setTexto("");
+                      }}
+                    >
+                      Limpiar filtro
+                    </button>
+                  </>
+                )}
+              </div>
             ) : (
               <div className="tabla-contenedor">
-                <table className="tabla">
+                <table className="tabla tabla-apilada">
                   <thead>
                     <tr>
                       <th>Expediente</th>
@@ -108,21 +141,23 @@ function PanelExpedientes() {
                   </thead>
                   <tbody>
                     {filas.map((s) => (
-                      <tr key={s.id}>
-                        <td className="mono-celda">
-                          <Link href={`/expedientes/${s.id}`}>{s.numero_expediente}</Link>
+                      <FilaEnlace key={s.id} href={`/expedientes/${s.id}`} etiqueta={`Abrir el expediente ${s.numero_expediente}, ${s.tipo}`}>
+                        <td className="mono-celda" data-label="Expediente">
+                          <Link href={`/expedientes/${s.id}`} tabIndex={-1}>
+                            {s.numero_expediente}
+                          </Link>
                         </td>
-                        <td>{formatoFecha(s.fecha_hecho)}</td>
-                        <td>{s.tipo}</td>
-                        <td>{s.bien_principal ?? "—"}</td>
-                        <td>
+                        <td data-label="Fecha del hecho">{formatoFecha(s.fecha_hecho)}</td>
+                        <td data-label="Tipo">{s.tipo}</td>
+                        <td data-label="Bien">{s.bien_principal ?? "—"}</td>
+                        <td data-label="Estado">
                           <InsigniaEstado estado={s.estado} />
                         </td>
-                        <td className={s.prioridad ? undefined : "sin-evaluar"}>
+                        <td className={s.prioridad ? undefined : "sin-evaluar"} data-label="Prioridad">
                           {s.prioridad ? <InsigniaPrioridad prioridad={s.prioridad} puntaje={s.puntaje} /> : "Sin evaluar"}
                         </td>
-                        <td>{s.tareas_pendientes}</td>
-                      </tr>
+                        <td data-label="Tareas">{s.tareas_pendientes}</td>
+                      </FilaEnlace>
                     ))}
                   </tbody>
                 </table>

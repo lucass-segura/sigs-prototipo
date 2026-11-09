@@ -164,6 +164,7 @@ El archivo se guarda en el volumen privado `documentos` (`<siniestro_id>/<uuid>`
 | `tipo_contenido` | varchar(120) | no | puede quedar vacío | Tipo MIME **(extra)** |
 | `tamanio` | bigint | no | | Tamaño en bytes **(extra)** |
 | `subido_por_id` | bigint | sí | FK → `usuario` | Quién lo subió **(extra)** |
+| `escena` | jsonb | sí | solo los croquis del editor | Escena JSON con la que se vuelve a dibujar el croquis (el archivo del documento es el PNG exportado). La API la valida: tamaño máximo, versión, tipos de elemento y números finitos **(extra, S29)** |
 
 ### 2.10 `nota`
 
@@ -365,4 +366,4 @@ Valores del E4 (línea del campo; la longitud está dos líneas más abajo) cont
 | `bien_afectado.descripcion`, `bien_afectado.atributos` | No figuran | Columnas nuevas (`varchar(250)` y `jsonb`) |
 | `siniestro.numero_denuncia`, `hora_denuncia`, `asesor`, `intervenciones`, `documentacion_adjunta` | No figuran (están en el Anexo 1 pero no en el diccionario) | Columnas nuevas (`varchar(60)`, `time`, `varchar(100)`, `varchar(250)` y `text`); la fecha de la denuncia sigue siendo `date` |
 | `bien.tipo` (E4:1652) | «Vehículo, motocicleta, teléfono, computadora u otro bien» | Igual, pero solo `vehiculo` y `motocicleta` cruzan entre casos; los demás tipos se registran sin cruzar |
-| Tablas `tarea_cambio` y `conjunto_reglas.creado_por_id` / `basado_en_id`, `siniestro.motivo_anulacion` / `creado_en` / `actualizado_en`, `documento.nombre_original` / `tipo_contenido` / `tamanio` / `subido_por_id`, `tarea.creada_en` | No figuran | Extras técnicos nuevos |
+| Tablas `tarea_cambio` y `conjunto_reglas.creado_por_id` / `basado_en_id`, `siniestro.motivo_anulacion` / `creado_en` / `actualizado_en`, `documento.nombre_original` / `tipo_contenido` / `tamanio` / `subido_por_id` / `escena`, `tarea.creada_en` | No figuran | Extras técnicos nuevos |

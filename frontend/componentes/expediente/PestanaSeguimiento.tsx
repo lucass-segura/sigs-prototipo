@@ -1,62 +1,121 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { api, erroresDeCampo } from "@/lib/api";
+import { api, erroresDeCampo, mensajeDeError } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { estaVencida, formatoDiaMes, formatoFechaHora } from "@/lib/formato";
+import { formatoDiaMes, formatoFechaHora } from "@/lib/formato";
+import { grupoDeVencimiento, insigniaDeVencimiento } from "@/lib/vencimientos";
 import { ESTADOS_TAREA, ETIQUETA_ESTADO_TAREA } from "@/lib/etiquetas";
 import type { EstadoTarea, Nota, Siniestro, Tarea } from "@/lib/tipos";
 import { Campo } from "../Campo";
 import { AvisoAmbar, ErrorFormulario } from "../Avisos";
-import { Cargando, ErrorCarga } from "../Estados";
+import { ErrorCarga } from "../Estados";
+import { EsqueletoLineas } from "../Esqueletos";
+import { useNotificar } from "../Notificaciones";
 
 function nombreUsuarioCambio(usuario: Tarea["cambios"][number]["usuario"]): string {
   if (!usuario) return "";
   return typeof usuario === "string" ? usuario : usuario.nombre;
 }
 
+function BotonesMover({
+  tarea,
+  ocupada,
+  alMover,
+}: {
+  tarea: Tarea;
+  ocupada: boolean;
+  alMover: (tarea: Tarea, estado: EstadoTarea) => void;
+}) {
+  const opciones: { destino: EstadoTarea; texto: string; ayuda: string }[] =
+    tarea.estado === "pendiente"
+      ? [
+          { destino: "en_curso", texto: "Pasar a en curso", ayuda: "Pasar a en curso" },
+          { destino: "hecha", texto: "Marcar como hecha", ayuda: "Marcar como hecha" },
+        ]
+      : tarea.estado === "en_curso"
+        ? [
+            { destino: "pendiente", texto: "Volver a pendiente", ayuda: "Volver a pendiente" },
+            { destino: "hecha", texto: "Marcar como hecha", ayuda: "Marcar como hecha" },
+          ]
+        : [{ destino: "pendiente", texto: "Reabrir", ayuda: "Reabrir como pendiente" }];
+  return (
+    <div className="tarea-acciones">
+      {opciones.map((o) => (
+        <button
+          key={o.destino}
+          type="button"
+          className="boton boton-chico"
+          aria-label={`${o.ayuda}: ${tarea.titulo}`}
+          disabled={ocupada}
+          onClick={() => alMover(tarea, o.destino)}
+        >
+          {o.texto}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Tablero({ idSiniestro }: { idSiniestro: number }) {
   const tareas = useApi<Tarea[]>(`/siniestros/${idSiniestro}/tareas`);
+  const notificar = useNotificar();
   const [creando, setCreando] = useState(false);
   const [titulo, setTitulo] = useState("");
   const [vence, setVence] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [errorCambio, setErrorCambio] = useState<unknown>(null);
+  const [guardando, setGuardando] = useState(false);
   const [columnaSobre, setColumnaSobre] = useState<EstadoTarea | null>(null);
   const [ocupada, setOcupada] = useState<number | null>(null);
+  const campoTitulo = useRef<HTMLInputElement>(null);
 
   const columnas = useMemo(() => {
     const porEstado: Record<EstadoTarea, Tarea[]> = { pendiente: [], en_curso: [], hecha: [] };
     for (const t of tareas.datos ?? []) porEstado[t.estado]?.push(t);
+    // Dentro de cada columna, las que vencen primero arriba y las que no tienen fecha al final.
+    for (const lista of Object.values(porEstado)) {
+      lista.sort((a, b) => (a.vence_en ?? "9999").localeCompare(b.vence_en ?? "9999") || a.id - b.id);
+    }
     return porEstado;
   }, [tareas.datos]);
+
+  const vencidas = columnas.pendiente.concat(columnas.en_curso).filter((t) => grupoDeVencimiento(t.estado, t.vence_en) === "vencida").length;
+  const abiertas = columnas.pendiente.length + columnas.en_curso.length;
+
+  useEffect(() => {
+    if (creando) campoTitulo.current?.focus();
+  }, [creando]);
 
   async function crear(evento: FormEvent) {
     evento.preventDefault();
     setError(null);
+    setGuardando(true);
     try {
       await api(`/siniestros/${idSiniestro}/tareas`, {
         cuerpo: { titulo: titulo.trim(), ...(vence ? { vence_en: vence } : {}) },
       });
+      notificar.exito(`Se agregó la tarea «${titulo.trim()}».`);
       setTitulo("");
       setVence("");
-      setCreando(false);
       tareas.recargar();
+      campoTitulo.current?.focus();
     } catch (e) {
       setError(e);
+    } finally {
+      setGuardando(false);
     }
   }
 
   async function mover(tarea: Tarea, estado: EstadoTarea) {
     if (tarea.estado === estado) return;
-    setErrorCambio(null);
     setOcupada(tarea.id);
     try {
       await api(`/tareas/${tarea.id}`, { metodo: "PATCH", cuerpo: { estado } });
+      notificar.exito(`«${tarea.titulo}» pasó a ${ETIQUETA_ESTADO_TAREA[estado].toLowerCase()}.`);
       tareas.recargar();
     } catch (e) {
-      setErrorCambio(e);
+      notificar.error(mensajeDeError(e));
     } finally {
       setOcupada(null);
     }
@@ -65,107 +124,143 @@ function Tablero({ idSiniestro }: { idSiniestro: number }) {
   return (
     <div className="columna">
       <div className="tarjeta-cabecera" style={{ border: 0, padding: 0 }}>
-        <h2>Tareas</h2>
-        <button type="button" className="boton boton-chico" onClick={() => setCreando((c) => !c)} aria-expanded={creando}>
+        <div>
+          <h2>Tareas</h2>
+          {tareas.datos ? (
+            <p className="nota-pequena">
+              {abiertas} {abiertas === 1 ? "abierta" : "abiertas"}
+              {vencidas > 0 ? (
+                <>
+                  {" · "}
+                  <span className="texto-vencida">
+                    {vencidas} {vencidas === 1 ? "vencida" : "vencidas"}
+                  </span>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="boton boton-chico"
+          onClick={() => setCreando((c) => !c)}
+          aria-expanded={creando}
+          aria-controls="alta-rapida-tarea"
+        >
           Nueva tarea
         </button>
       </div>
 
-      {creando ? (
-        <form className="tarjeta tarjeta-cuerpo" onSubmit={crear}>
-          <div className="rejilla-campos col-2">
-            <Campo etiqueta="Título" id="tarea-titulo" errores={erroresDeCampo(error, "titulo")}>
-              <input id="tarea-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} required />
-            </Campo>
-            <Campo etiqueta="Vencimiento (opcional)" id="tarea-vence" errores={erroresDeCampo(error, "vence_en")}>
-              <input id="tarea-vence" type="date" value={vence} onChange={(e) => setVence(e.target.value)} />
-            </Campo>
-          </div>
-          <ErrorFormulario error={error} />
-          <div className="acciones">
-            <button type="submit" className="boton boton-principal">
-              Crear tarea
-            </button>
-            <button type="button" className="boton" onClick={() => setCreando(false)}>
-              Cancelar
-            </button>
-          </div>
-        </form>
-      ) : null}
-
-      {tareas.cargando && !tareas.datos ? <Cargando /> : null}
+      {tareas.cargando && !tareas.datos ? <EsqueletoLineas lineas={4} etiqueta="Cargando tareas…" /> : null}
       {tareas.error ? <ErrorCarga error={tareas.error} /> : null}
-      <ErrorFormulario error={errorCambio} />
 
       {tareas.datos ? (
-        <div className="tablero">
-          {ESTADOS_TAREA.map((estado) => (
-            <div
-              key={estado}
-              className={`columna-tablero${columnaSobre === estado ? " sobre" : ""}`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setColumnaSobre(estado);
-              }}
-              onDragLeave={() => setColumnaSobre((actual) => (actual === estado ? null : actual))}
-              onDrop={(e) => {
-                e.preventDefault();
-                setColumnaSobre(null);
-                const id = Number(e.dataTransfer.getData("text/plain"));
-                const tarea = (tareas.datos ?? []).find((t) => t.id === id);
-                if (tarea) void mover(tarea, estado);
-              }}
-            >
-              <h3>
-                {ETIQUETA_ESTADO_TAREA[estado]} <span>{columnas[estado].length}</span>
-              </h3>
-              {columnas[estado].map((t) => (
-                <article
-                  key={t.id}
-                  className="tarea"
-                  draggable
-                  onDragStart={(e) => e.dataTransfer.setData("text/plain", String(t.id))}
-                >
-                  <div className="tarea-titulo">{t.titulo}</div>
-                  {t.vence_en ? (
-                    <div className={`tarea-meta${t.estado !== "hecha" && estaVencida(t.vence_en) ? " vencida" : ""}`}>
-                      Vence {formatoDiaMes(t.vence_en)}
-                    </div>
-                  ) : (
-                    <div className="tarea-meta">Sin vencimiento</div>
-                  )}
-                  <div className="tarea-acciones">
-                    {ESTADOS_TAREA.filter((e) => e !== t.estado).map((e) => (
-                      <button
-                        key={e}
-                        type="button"
-                        className="boton boton-chico"
-                        disabled={ocupada === t.id}
-                        onClick={() => void mover(t, e)}
-                      >
-                        Pasar a {ETIQUETA_ESTADO_TAREA[e].toLowerCase()}
+        <>
+          <p className="nota-pequena">Arrastrá las tarjetas entre columnas o usá los botones de cada una.</p>
+          <div className="tablero">
+            {ESTADOS_TAREA.map((estado) => (
+              <div
+                key={estado}
+                className={`columna-tablero columna-${estado}${columnaSobre === estado ? " sobre" : ""}`}
+                role="group"
+                aria-label={`${ETIQUETA_ESTADO_TAREA[estado]}: ${columnas[estado].length}`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setColumnaSobre(estado);
+                }}
+                onDragLeave={() => setColumnaSobre((actual) => (actual === estado ? null : actual))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setColumnaSobre(null);
+                  const id = Number(e.dataTransfer.getData("text/plain"));
+                  const tarea = (tareas.datos ?? []).find((t) => t.id === id);
+                  if (tarea) void mover(tarea, estado);
+                }}
+              >
+                <h3>
+                  {ETIQUETA_ESTADO_TAREA[estado]} <span>{columnas[estado].length}</span>
+                </h3>
+
+                {estado === "pendiente" && creando ? (
+                  <form id="alta-rapida-tarea" className="tarea tarea-alta" onSubmit={crear}>
+                    <Campo etiqueta="Tarea nueva" id="tarea-titulo" errores={erroresDeCampo(error, "titulo")}>
+                      <input
+                        id="tarea-titulo"
+                        ref={campoTitulo}
+                        value={titulo}
+                        onChange={(e) => setTitulo(e.target.value)}
+                        placeholder="Qué hay que hacer"
+                        required
+                      />
+                    </Campo>
+                    <Campo etiqueta="Vence (opcional)" id="tarea-vence" errores={erroresDeCampo(error, "vence_en")}>
+                      <input id="tarea-vence" type="date" value={vence} onChange={(e) => setVence(e.target.value)} />
+                    </Campo>
+                    <ErrorFormulario error={error} />
+                    <div className="acciones">
+                      <button type="submit" className="boton boton-principal boton-chico" disabled={guardando}>
+                        {guardando ? "Agregando…" : "Agregar"}
                       </button>
-                    ))}
-                  </div>
-                  {t.cambios && t.cambios.length > 0 ? (
-                    <details>
-                      <summary>Historial ({t.cambios.length})</summary>
-                      <ul className="lista-datos">
-                        {t.cambios.map((c, i) => (
-                          <li key={i}>
-                            {formatoFechaHora(c.fecha)} · {c.estado_anterior ? `${ETIQUETA_ESTADO_TAREA[c.estado_anterior]} → ` : ""}
-                            {ETIQUETA_ESTADO_TAREA[c.estado_nuevo]}
-                            {nombreUsuarioCambio(c.usuario) ? ` · ${nombreUsuarioCambio(c.usuario)}` : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          ))}
-        </div>
+                      <button type="button" className="boton boton-chico" onClick={() => setCreando(false)}>
+                        Cerrar
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {columnas[estado].length === 0 && !(estado === "pendiente" && creando) ? (
+                  <p className="columna-vacia">{estado === "hecha" ? "Todavía no cerraste tareas." : "Sin tareas."}</p>
+                ) : null}
+
+                {columnas[estado].map((t) => {
+                  const venc = insigniaDeVencimiento(t.estado, t.vence_en);
+                  const vencida = grupoDeVencimiento(t.estado, t.vence_en) === "vencida";
+                  return (
+                    <article
+                      key={t.id}
+                      className={`tarea${vencida ? " tarea-vencida" : ""}`}
+                      draggable
+                      onDragStart={(e) => e.dataTransfer.setData("text/plain", String(t.id))}
+                    >
+                      <div className="tarea-titulo">{t.titulo}</div>
+                      <div className="tarea-meta">
+                        {t.estado === "hecha" ? (
+                          t.vence_en ? `Vencía el ${formatoDiaMes(t.vence_en)}` : "Sin vencimiento"
+                        ) : (
+                          <span className={`insignia insignia-venc-${venc.clase}`}>{venc.texto}</span>
+                        )}
+                      </div>
+                      <BotonesMover tarea={t} ocupada={ocupada === t.id} alMover={(tarea, e) => void mover(tarea, e)} />
+                      {t.cambios && t.cambios.length > 0 ? (
+                        <details>
+                          <summary>Historial ({t.cambios.length})</summary>
+                          <ol className="historial-tarea">
+                            {t.cambios.map((c, i) => (
+                              <li key={i}>
+                                <span className="historial-fecha">{formatoFechaHora(c.fecha)}</span>
+                                <span>
+                                  {c.estado_anterior ? `De ${ETIQUETA_ESTADO_TAREA[c.estado_anterior]} a ` : "Creada en "}
+                                  <strong>{ETIQUETA_ESTADO_TAREA[c.estado_nuevo]}</strong>
+                                  {nombreUsuarioCambio(c.usuario) ? ` · ${nombreUsuarioCambio(c.usuario)}` : ""}
+                                </span>
+                              </li>
+                            ))}
+                          </ol>
+                        </details>
+                      ) : null}
+                    </article>
+                  );
+                })}
+
+                {estado === "pendiente" && !creando ? (
+                  <button type="button" className="boton-agregar" onClick={() => setCreando(true)}>
+                    + Agregar tarea
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </>
       ) : null}
     </div>
   );
@@ -173,6 +268,7 @@ function Tablero({ idSiniestro }: { idSiniestro: number }) {
 
 function Notas({ idSiniestro }: { idSiniestro: number }) {
   const notas = useApi<Nota[]>(`/siniestros/${idSiniestro}/notas`);
+  const notificar = useNotificar();
   const [agregando, setAgregando] = useState(false);
   const [texto, setTexto] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -184,6 +280,7 @@ function Notas({ idSiniestro }: { idSiniestro: number }) {
       await api(`/siniestros/${idSiniestro}/notas`, { cuerpo: { texto: texto.trim() } });
       setTexto("");
       setAgregando(false);
+      notificar.exito("Se guardó la nota.");
       notas.recargar();
     } catch (e) {
       setError(e);
@@ -219,13 +316,17 @@ function Notas({ idSiniestro }: { idSiniestro: number }) {
           </div>
         </form>
       ) : null}
-      {notas.cargando && !notas.datos ? <p className="vacio">Cargando…</p> : null}
+      {notas.cargando && !notas.datos ? (
+        <div className="tarjeta-cuerpo">
+          <EsqueletoLineas lineas={3} etiqueta="Cargando notas…" />
+        </div>
+      ) : null}
       {notas.error ? (
         <div className="tarjeta-cuerpo">
           <ErrorCarga error={notas.error} />
         </div>
       ) : null}
-      {notas.datos && ordenadas.length === 0 ? <p className="vacio">Todavía no hay notas.</p> : null}
+      {notas.datos && ordenadas.length === 0 ? <p className="vacio">Todavía no hay notas. Usá «Agregar» para dejar la primera: son privadas y solo las ves vos.</p> : null}
       <ul className="notas-lista">
         {ordenadas.map((n) => (
           <li key={n.id}>

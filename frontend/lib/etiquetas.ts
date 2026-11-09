@@ -116,3 +116,14 @@ export function textoBienPrincipal(bien: { tipo: TipoBien; identificador_norm?: 
   const id = bien.identificador_norm ?? bien.identificador ?? "";
   return `${ETIQUETA_TIPO_BIEN[bien.tipo] ?? "Bien"} ${id}`.trim();
 }
+
+/** Filtro de estado de la lista de tareas. `abiertas` (pendientes y en curso) es lo que devuelve la API sin parámetros. */
+export type FiltroEstadoTarea = "abiertas" | "pendiente" | "en_curso" | "hecha" | "todas";
+
+export const FILTROS_ESTADO_TAREA: { valor: FiltroEstadoTarea; texto: string }[] = [
+  { valor: "abiertas", texto: "Abiertas (pendientes y en curso)" },
+  { valor: "pendiente", texto: "Pendientes" },
+  { valor: "en_curso", texto: "En curso" },
+  { valor: "hecha", texto: "Hechas" },
+  { valor: "todas", texto: "Todas" },
+];

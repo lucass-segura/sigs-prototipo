@@ -9,6 +9,8 @@ import { useSesion } from "@/lib/sesion";
 import { ETIQUETA_ROL } from "@/lib/etiquetas";
 import type { Rol } from "@/lib/tipos";
 import { Cargando } from "@/componentes/Estados";
+import { NotificacionesProvider } from "@/componentes/Notificaciones";
+import { ConfirmarProvider } from "@/componentes/Confirmar";
 
 interface ItemMenu {
   texto: string;
@@ -52,7 +54,7 @@ function menuPorRol(rol: Rol): ItemMenu[] {
   ];
 }
 
-export default function LayoutAplicacion({ children }: { children: ReactNode }) {
+function Marco({ children }: { children: ReactNode }) {
   const { usuario, cargando, salir } = useSesion();
   const router = useRouter();
   const ruta = usePathname();
@@ -78,6 +80,9 @@ export default function LayoutAplicacion({ children }: { children: ReactNode }) 
 
   return (
     <div className="aplicacion">
+      <a href="#contenido-principal" className="saltar-contenido">
+        Saltar al contenido
+      </a>
       <aside className={`lateral${menuAbierto ? " lateral-abierto" : ""}`}>
         <div className="lateral-cabecera">
           <div>
@@ -91,7 +96,7 @@ export default function LayoutAplicacion({ children }: { children: ReactNode }) 
             aria-controls="menu-principal"
             onClick={() => setMenuAbierto((a) => !a)}
           >
-            Menú
+            {menuAbierto ? "Cerrar" : "Menú"}
           </button>
         </div>
         <nav id="menu-principal" className="lateral-menu" aria-label="Principal">
@@ -126,5 +131,15 @@ export default function LayoutAplicacion({ children }: { children: ReactNode }) 
       </aside>
       <div className="contenido">{children}</div>
     </div>
+  );
+}
+
+export default function LayoutAplicacion({ children }: { children: ReactNode }) {
+  return (
+    <NotificacionesProvider>
+      <ConfirmarProvider>
+        <Marco>{children}</Marco>
+      </ConfirmarProvider>
+    </NotificacionesProvider>
   );
 }

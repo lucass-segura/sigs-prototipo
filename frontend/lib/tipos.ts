@@ -314,6 +314,10 @@ export interface Documento {
   estado: string;
   recibido_en: string;
   tamanio: number;
+  /** Tipo seguro declarado al subir (imagen, PDF o texto) o `null` si solo se puede descargar. */
+  previsualizable: string | null;
+  /** `true` si es un croquis del editor, que se puede reabrir. */
+  tiene_escena: boolean;
 }
 
 // --------------------------------------------------------------------- Reglas
