@@ -1,107 +1,163 @@
 "use client";
 
-// Registro y edición de borradores (HU-03) con confirmación inmediata (HU-04).
-import { useEffect, useState } from "react";
+// Registro y edición de borradores (HU-03) con confirmación inmediata (HU-04), como asistente de cinco pasos (S33):
+// 1 Póliza · 2 Hecho y denuncia · 3 Personas · 4 Bienes · 5 Revisar y confirmar.
+// Todo lo cargado vive acá, por encima de los pasos, y se guarda en sessionStorage (por usuario y por borrador).
+import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ErrorApi, api, erroresDeCampo } from "@/lib/api";
-import { formatearFecha, separarFechaHora, unirFechaHora } from "@/lib/fechas";
-import { aInputFecha, aInputFechaHora, aInputHora } from "@/lib/formato";
+import { ErrorApi, api } from "@/lib/api";
 import {
-  ETIQUETA_ROL_PERSONA,
-  ETIQUETA_TIPO_BIEN,
-  ROLES_PERSONA,
-  TIPOS_BIEN,
-  TIPOS_IDENTIFICADOR,
-  TIPOS_SINIESTRO_SUGERIDOS,
-} from "@/lib/etiquetas";
-import type {
-  BienSiniestro,
-  CuerpoSiniestro,
-  PersonaSiniestro,
-  RolPersona,
-  Siniestro,
-  TipoBien,
-  TipoIdentificador,
-} from "@/lib/tipos";
+  PASOS,
+  armarCuerpo,
+  bienVacio,
+  claveAlmacen,
+  datosIniciales,
+  deserializar,
+  idControlDeRuta,
+  indiceDePaso,
+  nombreDePaso,
+  nuevaClave,
+  pasoDeRuta,
+  pasosConAvisos,
+  pasosConError,
+  personaVacia,
+  primerPasoConError,
+  reducirDatos,
+  requisitosParaConfirmar,
+  serializar,
+  validarPaso,
+} from "@/lib/asistenteSiniestro";
+import type { Accion, DatosSiniestro, IdPaso } from "@/lib/asistenteSiniestro";
+import { separarFechaHora } from "@/lib/fechas";
+import { aInputFecha, aInputFechaHora, aInputHora } from "@/lib/formato";
+import { useSesion } from "@/lib/sesion";
+import type { Siniestro } from "@/lib/tipos";
 import { useApi } from "@/lib/useApi";
-import { Campo } from "./Campo";
-import { AvisoVerde, ErrorFormulario } from "./Avisos";
+import { ErrorFormulario } from "./Avisos";
+import { useConfirmar } from "./Confirmar";
 import { Cargando, ErrorCarga } from "./Estados";
-import { SelectorFecha } from "./fechas/SelectorFecha";
-import { SelectorHora } from "./fechas/SelectorHora";
-import { useAhora } from "./fechas/useAhora";
-import { useValidezFechas } from "./fechas/useValidezFechas";
+import { useNotificar } from "./Notificaciones";
 import { EncabezadoPagina, Vista } from "./Vista";
+import { IndicadorPasos } from "./asistente/IndicadorPasos";
+import { Paso } from "./asistente/Paso";
+import { PasoBienes } from "./asistente/PasoBienes";
+import { MENSAJE_FECHA_HECHO_REQUERIDA, MENSAJE_HORA_HECHO_REQUERIDA, PasoHecho } from "./asistente/PasoHecho";
+import { PasoPersonas } from "./asistente/PasoPersonas";
+import { PasoPoliza } from "./asistente/PasoPoliza";
+import { PasoRevision } from "./asistente/PasoRevision";
+import type { PropsPaso } from "./asistente/tipos";
+import { useValidezFechas } from "./fechas/useValidezFechas";
 
-interface FilaPersona {
-  clave: number;
-  tipo_identificador: TipoIdentificador;
-  identificador: string;
-  nombre: string;
-  roles: RolPersona[];
+/** Paso donde está cada selector de fecha u hora. */
+const PASO_DE_SELECTOR: Record<string, IdPaso> = {
+  "inicio-vigencia": "poliza",
+  "primer-pago": "poliza",
+  "fecha-hecho": "hecho",
+  "hora-hecho": "hecho",
+  "fecha-denuncia": "hecho",
+  "hora-denuncia": "hecho",
+};
+
+/** Un obligatorio vacío es un dato que falta (se puede seguir); cualquier otro mensaje es un valor que no se puede enviar. */
+const MENSAJE_DE_FALTANTE: Record<string, string> = {
+  "fecha-hecho": MENSAJE_FECHA_HECHO_REQUERIDA,
+  "hora-hecho": MENSAJE_HORA_HECHO_REQUERIDA,
+};
+
+const PASOS_CON_DATOS: IdPaso[] = ["poliza", "hecho", "personas", "bienes"];
+
+const sinRevisiones = (): Record<IdPaso, number> => ({ poliza: 0, hecho: 0, personas: 0, bienes: 0, revision: 0 });
+
+const revisionesDe = (pasos: readonly IdPaso[]): Record<IdPaso, number> => {
+  const r = sinRevisiones();
+  for (const p of pasos) r[p] = 1;
+  return r;
+};
+
+/** Datos de un borrador que ya está en el servidor. */
+function precargar(s: Siniestro): DatosSiniestro {
+  const hecho = separarFechaHora(aInputFechaHora(s.fecha_hecho));
+  return {
+    compania: s.poliza?.compania ?? "",
+    numeroPoliza: s.poliza?.numero ?? "",
+    cobertura: s.poliza?.cobertura ?? "",
+    inicioVigencia: aInputFecha(s.poliza?.inicio_vigencia),
+    primerPago: aInputFecha(s.poliza?.primer_pago),
+    tipo: s.tipo,
+    fechaHecho: hecho.fecha,
+    horaHecho: hecho.hora,
+    fechaDenuncia: aInputFecha(s.fecha_denuncia),
+    horaDenuncia: aInputHora(s.hora_denuncia),
+    numeroDenuncia: s.numero_denuncia ?? "",
+    asesor: s.asesor ?? "",
+    intervenciones: s.intervenciones ?? "",
+    documentacionAdjunta: s.documentacion_adjunta ?? "",
+    lugar: s.lugar ?? "",
+    relato: s.relato ?? "",
+    personas: s.personas.length
+      ? s.personas.map((p) => ({
+          clave: nuevaClave(),
+          tipo_identificador: p.tipo_identificador,
+          identificador: p.identificador,
+          nombre: p.nombre,
+          roles: p.roles,
+        }))
+      : [personaVacia()],
+    bienes: s.bienes.length
+      ? s.bienes.map((b) => ({
+          clave: nuevaClave(),
+          tipo: b.tipo,
+          identificador: b.identificador_norm ?? b.identificador ?? "",
+          descripcion: b.descripcion ?? "",
+          detalle_dano: b.detalle_dano ?? "",
+          motor: typeof b.atributos?.motor === "string" ? b.atributos.motor : "",
+          chasis: typeof b.atributos?.chasis === "string" ? b.atributos.chasis : "",
+        }))
+      : [bienVacio()],
+  };
 }
 
-interface FilaBien {
-  clave: number;
-  tipo: TipoBien;
-  identificador: string;
-  descripcion: string;
-  detalle_dano: string;
-  motor: string;
-  chasis: string;
+/** El primero en el orden de la pantalla. */
+function primeroEnPantalla(ids: string[]): string | null {
+  const elementos = ids.map((id) => document.getElementById(id)).filter((el): el is HTMLElement => el !== null);
+  elementos.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  return elementos[0]?.id ?? ids[0] ?? null;
 }
 
-let contadorClaves = 0;
-const nuevaClave = () => ++contadorClaves;
-
-const personaVacia = (): FilaPersona => ({
-  clave: nuevaClave(),
-  tipo_identificador: "DNI",
-  identificador: "",
-  nombre: "",
-  roles: [],
-});
-
-const bienVacio = (): FilaBien => ({
-  clave: nuevaClave(),
-  tipo: "vehiculo",
-  identificador: "",
-  descripcion: "",
-  detalle_dano: "",
-  motor: "",
-  chasis: "",
-});
-
-const tieneAtributosDeVehiculo = (tipo: TipoBien) => tipo === "vehiculo" || tipo === "motocicleta";
+const leerAlmacen = (clave: string): string | null => {
+  try {
+    return window.sessionStorage.getItem(clave);
+  } catch {
+    return null;
+  }
+};
 
 export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null }) {
   const router = useRouter();
+  const { usuario } = useSesion();
+  const confirmarAccion = useConfirmar();
+  const notificar = useNotificar();
   const edicion = useApi<Siniestro>(idBorrador ? `/siniestros/${idBorrador}` : null);
+  const clave = usuario ? claveAlmacen(usuario.id, idBorrador) : null;
 
-  const [compania, setCompania] = useState("");
-  const [numeroPoliza, setNumeroPoliza] = useState("");
-  const [cobertura, setCobertura] = useState("");
-  const [inicioVigencia, setInicioVigencia] = useState("");
-  const [primerPago, setPrimerPago] = useState("");
-  const [tipo, setTipo] = useState("");
-  const [fechaHecho, setFechaHecho] = useState("");
-  const [horaHecho, setHoraHecho] = useState("");
-  const [fechaDenuncia, setFechaDenuncia] = useState("");
-  const [horaDenuncia, setHoraDenuncia] = useState("");
-  const [numeroDenuncia, setNumeroDenuncia] = useState("");
-  const [asesor, setAsesor] = useState("");
-  const [intervenciones, setIntervenciones] = useState("");
-  const [documentacionAdjunta, setDocumentacionAdjunta] = useState("");
-  const [lugar, setLugar] = useState("");
-  const [relato, setRelato] = useState("");
-  const [personas, setPersonas] = useState<FilaPersona[]>(() => [personaVacia()]);
-  const [bienes, setBienes] = useState<FilaBien[]>(() => [bienVacio()]);
+  const [datos, despachar] = useReducer(reducirDatos, undefined, datosIniciales);
+  const [paso, setPaso] = useState<IdPaso>("poliza");
+  const [visitados, setVisitados] = useState<IdPaso[]>([]);
+  const [revisiones, setRevisiones] = useState<Record<IdPaso, number>>(sinRevisiones);
+  const [hidratado, setHidratado] = useState(false);
+  const [tocado, setTocado] = useState(false);
+  const [recuperado, setRecuperado] = useState(false);
+  const [generacion, setGeneracion] = useState(0);
   const [error, setError] = useState<unknown>(null);
-  const [enviando, setEnviando] = useState<null | "borrador" | "confirmar">(null);
-  const [precargado, setPrecargado] = useState(false);
-  const validez = useValidezFechas();
-  const ahora = useAhora();
   const [errorDeFechas, setErrorDeFechas] = useState(false);
+  // Pasos que se tocaron después del último error de la API: sus errores ya no valen.
+  const [editados, setEditados] = useState<IdPaso[]>([]);
+  const [enviando, setEnviando] = useState<null | "borrador" | "confirmar">(null);
+  const [anuncio, setAnuncio] = useState("");
+  const [foco, setFoco] = useState<{ id: string | null; n: number }>({ id: null, n: 0 });
+  const validez = useValidezFechas();
+  const inicializado = useRef(false);
+  const sinPersistir = useRef(false);
 
   // El aviso general de fechas se va solo cuando ya no queda ningún selector marcado.
   useEffect(() => {
@@ -111,114 +167,171 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
     }
   }, [errorDeFechas, validez.hayInvalidos]);
 
-  // Con un borrador existente se cargan sus datos una sola vez.
+  // Carga inicial, una sola vez: lo que quedó guardado en esta pestaña gana; si no, el borrador del servidor.
   useEffect(() => {
+    if (inicializado.current || !clave) return;
+    if (idBorrador && !edicion.datos) return;
     const s = edicion.datos;
-    if (!s || precargado) return;
-    setPrecargado(true);
-    setCompania(s.poliza?.compania ?? "");
-    setNumeroPoliza(s.poliza?.numero ?? "");
-    setCobertura(s.poliza?.cobertura ?? "");
-    setInicioVigencia(aInputFecha(s.poliza?.inicio_vigencia));
-    setPrimerPago(aInputFecha(s.poliza?.primer_pago));
-    setTipo(s.tipo);
-    const hecho = separarFechaHora(aInputFechaHora(s.fecha_hecho));
-    setFechaHecho(hecho.fecha);
-    setHoraHecho(hecho.hora);
-    setFechaDenuncia(aInputFecha(s.fecha_denuncia));
-    setHoraDenuncia(aInputHora(s.hora_denuncia));
-    setNumeroDenuncia(s.numero_denuncia ?? "");
-    setAsesor(s.asesor ?? "");
-    setIntervenciones(s.intervenciones ?? "");
-    setDocumentacionAdjunta(s.documentacion_adjunta ?? "");
-    setLugar(s.lugar ?? "");
-    setRelato(s.relato ?? "");
-    setPersonas(
-      s.personas.length
-        ? s.personas.map((p) => ({
-            clave: nuevaClave(),
-            tipo_identificador: p.tipo_identificador,
-            identificador: p.identificador,
-            nombre: p.nombre,
-            roles: p.roles,
-          }))
-        : [personaVacia()],
-    );
-    setBienes(
-      s.bienes.length
-        ? s.bienes.map((b) => ({
-            clave: nuevaClave(),
-            tipo: b.tipo,
-            identificador: b.identificador_norm ?? b.identificador ?? "",
-            descripcion: b.descripcion ?? "",
-            detalle_dano: b.detalle_dano ?? "",
-            motor: typeof b.atributos?.motor === "string" ? b.atributos.motor : "",
-            chasis: typeof b.atributos?.chasis === "string" ? b.atributos.chasis : "",
-          }))
-        : [bienVacio()],
-    );
-  }, [edicion.datos, precargado]);
+    if (s && (s.estado !== "borrador" || !s.es_responsable)) return;
+    inicializado.current = true;
+    const guardado = deserializar(leerAlmacen(clave));
+    if (guardado) {
+      despachar({ tipo: "reemplazar", datos: guardado.datos });
+      setPaso(guardado.paso);
+      setVisitados(guardado.visitados);
+      setRevisiones(revisionesDe(guardado.visitados));
+      setTocado(true);
+      setRecuperado(true);
+    } else if (s) {
+      despachar({ tipo: "reemplazar", datos: precargar(s) });
+      setVisitados(PASOS_CON_DATOS);
+      setRevisiones(revisionesDe(PASOS_CON_DATOS));
+    }
+    setHidratado(true);
+  }, [clave, idBorrador, edicion.datos]);
 
-  function armarCuerpo(): CuerpoSiniestro {
-    const personasEnviadas: PersonaSiniestro[] = personas
-      .filter((p) => p.identificador.trim() || p.nombre.trim() || p.roles.length)
-      .map((p) => ({
-        tipo_identificador: p.tipo_identificador,
-        identificador: p.identificador.trim(),
-        nombre: p.nombre.trim(),
-        roles: p.roles,
-      }));
-    const bienesEnviados: BienSiniestro[] = bienes
-      .filter((b) => b.identificador.trim() || b.descripcion.trim() || b.detalle_dano.trim())
-      .map((b) => {
-        const atributos: Record<string, string> = {};
-        if (tieneAtributosDeVehiculo(b.tipo)) {
-          if (b.motor.trim()) atributos.motor = b.motor.trim();
-          if (b.chasis.trim()) atributos.chasis = b.chasis.trim();
-        }
-        return {
-          tipo: b.tipo,
-          identificador: b.identificador.trim(),
-          descripcion: b.descripcion.trim(),
-          detalle_dano: b.detalle_dano.trim(),
-          atributos,
-        };
-      });
-    return {
-      poliza: {
-        numero: numeroPoliza.trim(),
-        compania: compania.trim(),
-        cobertura: cobertura.trim(),
-        inicio_vigencia: inicioVigencia || null,
-        primer_pago: primerPago || null,
-      },
-      tipo: tipo.trim(),
-      ...(fechaHecho && horaHecho ? { fecha_hecho: unirFechaHora(fechaHecho, horaHecho) } : {}),
-      fecha_denuncia: fechaDenuncia || null,
-      hora_denuncia: horaDenuncia || null,
-      numero_denuncia: numeroDenuncia.trim(),
-      asesor: asesor.trim(),
-      intervenciones: intervenciones.trim(),
-      documentacion_adjunta: documentacionAdjunta.trim(),
-      lugar: lugar.trim(),
-      relato: relato.trim(),
-      personas: personasEnviadas,
-      bienes: bienesEnviados,
-    };
+  // Cada cambio se guarda en sessionStorage (solo de esta pestaña; nunca en localStorage).
+  useEffect(() => {
+    if (!hidratado || !tocado || !clave || sinPersistir.current) return;
+    try {
+      window.sessionStorage.setItem(clave, serializar({ datos, paso, visitados }));
+    } catch {
+      // Sin espacio o sin sessionStorage: el formulario sigue funcionando, solo que no sobrevive a recargar.
+    }
+  }, [hidratado, tocado, clave, datos, paso, visitados]);
+
+  // El foco va al título del paso (o al campo con error) cada vez que se navega.
+  useEffect(() => {
+    if (foco.n === 0) return;
+    const destino = (foco.id && document.getElementById(foco.id)) || document.getElementById(`titulo-paso-${paso}`);
+    destino?.focus();
+  }, [foco, paso]);
+
+  const cambiar = useCallback(
+    (accion: Accion) => {
+      despachar(accion);
+      setTocado(true);
+      setRecuperado(false);
+      setEditados((e) => (e.includes(paso) ? e : [...e, paso]));
+    },
+    [paso],
+  );
+
+  // ---------------------------------------------------------------- Errores y avisos de cada paso
+
+  const camposApi = useMemo(() => {
+    const todos = error instanceof ErrorApi ? error.campos : [];
+    return todos.filter((c) => {
+      const dueno = pasoDeRuta(c.ruta);
+      return !(dueno && editados.includes(dueno));
+    });
+  }, [error, editados]);
+
+  const errorVigente = useMemo(() => {
+    if (!(error instanceof ErrorApi)) return error;
+    return error.detalle || camposApi.length > 0 ? new ErrorApi(error.estado, error.detalle, camposApi) : null;
+  }, [error, camposApi]);
+
+  // La validación suave de un paso se muestra una vez que se pasó por él.
+  const avisos = useMemo(() => {
+    const todos: Record<string, string> = {};
+    for (const p of PASOS) if (visitados.includes(p.id)) Object.assign(todos, validarPaso(datos, p.id));
+    return todos;
+  }, [datos, visitados]);
+
+  const mensajes = useCallback(
+    (id: string, ruta?: string): string[] => {
+      const deApi = ruta ? camposApi.filter((c) => c.ruta === ruta || c.ruta.startsWith(`${ruta}.`)).map((c) => c.mensaje) : [];
+      return [...new Set([...deApi, ...(avisos[id] ? [avisos[id]] : [])])];
+    },
+    [camposApi, avisos],
+  );
+
+  const conError = useMemo(() => {
+    const pasos = new Set<IdPaso>(pasosConError(camposApi.map((c) => c.ruta)));
+    for (const id of Object.keys(validez.invalidos)) {
+      const dueno = PASO_DE_SELECTOR[id];
+      if (dueno && visitados.includes(dueno)) pasos.add(dueno);
+    }
+    for (const p of pasosConAvisos(datos)) if (visitados.includes(p)) pasos.add(p);
+    return pasos;
+  }, [camposApi, validez.invalidos, visitados, datos]);
+
+  const requisitos = useMemo(() => requisitosParaConfirmar(datos), [datos]);
+
+  const selector = useCallback(
+    (id: string) => ({ ...validez.props(id), revision: revisiones[PASO_DE_SELECTOR[id]] }),
+    [validez, revisiones],
+  );
+
+  // ---------------------------------------------------------------- Navegación
+
+  function marcarRevisados(pasos: IdPaso[]) {
+    setVisitados((v) => [...v, ...pasos.filter((p) => !v.includes(p))]);
+    setRevisiones((r) => {
+      const siguiente = { ...r };
+      for (const p of pasos) siguiente[p] += 1;
+      return siguiente;
+    });
   }
+
+  function pedirFoco(id: string | null) {
+    setFoco((f) => ({ id, n: f.n + 1 }));
+  }
+
+  function tieneProblemas(p: IdPaso): boolean {
+    return (
+      Object.keys(validarPaso(datos, p)).length > 0 || Object.keys(validez.invalidos).some((id) => PASO_DE_SELECTOR[id] === p)
+    );
+  }
+
+  function irA(destino: IdPaso, idCampo: string | null = null) {
+    if (destino !== paso) {
+      marcarRevisados([paso]);
+      setTocado(true);
+      setAnuncio(tieneProblemas(paso) ? `El paso «${nombreDePaso(paso)}» tiene datos para revisar.` : "");
+    }
+    setPaso(destino);
+    pedirFoco(idCampo);
+  }
+
+  function siguiente() {
+    // Un valor que no se puede leer (por ejemplo una fecha a medio escribir) frena; lo que falta no.
+    const ilegibles = Object.keys(validez.invalidos).filter(
+      (id) => PASO_DE_SELECTOR[id] === paso && validez.invalidos[id] !== MENSAJE_DE_FALTANTE[id],
+    );
+    if (ilegibles.length > 0) {
+      marcarRevisados([paso]);
+      pedirFoco(primeroEnPantalla(ilegibles));
+      return;
+    }
+    irA(PASOS[indiceDePaso(paso) + 1].id);
+  }
+
+  function anterior() {
+    irA(PASOS[indiceDePaso(paso) - 1].id);
+  }
+
+  // ---------------------------------------------------------------- Guardar, confirmar y descartar
 
   async function guardar(confirmar: boolean) {
     setError(null);
     setErrorDeFechas(false);
+    setEditados([]);
     // Un selector con una fecha u hora que no se puede enviar se marca y no se manda nada.
-    if (validez.revisar()) {
+    const invalidos = Object.keys(validez.invalidos);
+    if (invalidos.length > 0) {
+      const afectados = PASOS.map((p) => p.id).filter((id) => invalidos.some((i) => PASO_DE_SELECTOR[i] === id));
+      marcarRevisados(afectados);
+      const destino = afectados[0] ?? paso;
+      irA(destino, primeroEnPantalla(invalidos.filter((i) => PASO_DE_SELECTOR[i] === destino)));
       setError(new ErrorApi(400, "Revisá las fechas y horas marcadas en rojo antes de guardar.", []));
       setErrorDeFechas(true);
       return;
     }
     setEnviando(confirmar ? "confirmar" : "borrador");
     try {
-      const cuerpo = armarCuerpo();
+      const cuerpo = armarCuerpo(datos);
       let id: number;
       if (idBorrador) {
         await api<Siniestro>(`/siniestros/${idBorrador}`, { metodo: "PATCH", cuerpo });
@@ -228,30 +341,66 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
         const creado = await api<Siniestro>("/siniestros", { cuerpo: { ...cuerpo, confirmar } });
         id = creado.id;
       }
+      // Ya está guardado en el servidor: lo que quedaba en esta pestaña se borra.
+      sinPersistir.current = true;
+      if (clave) {
+        try {
+          window.sessionStorage.removeItem(clave);
+        } catch {
+          // Nada que borrar.
+        }
+      }
       router.push(`/expedientes/${id}?tab=${confirmar ? "analisis" : "datos"}`);
     } catch (e) {
       setError(e);
       setEnviando(null);
+      // Un error de un campo lleva al paso que lo tiene y le da el foco.
+      if (e instanceof ErrorApi) {
+        const rutas = e.campos.map((c) => c.ruta);
+        const destino = primerPasoConError(rutas);
+        if (destino) {
+          marcarRevisados(pasosConError(rutas));
+          const primera = e.campos.find((c) => pasoDeRuta(c.ruta) === destino);
+          irA(destino, primera ? idControlDeRuta(primera.ruta, datos) : null);
+        }
+      }
     }
   }
 
-  function actualizarPersona(clave: number, cambios: Partial<FilaPersona>) {
-    setPersonas((filas) => filas.map((f) => (f.clave === clave ? { ...f, ...cambios } : f)));
+  async function descartar() {
+    const seguro = await confirmarAccion({
+      titulo: "¿Descartar lo cargado?",
+      mensaje: idBorrador
+        ? "Se borran los cambios que hiciste en esta pantalla y el borrador vuelve a quedar como lo guardaste."
+        : "Se borra todo lo que cargaste en este formulario. No se puede deshacer.",
+      confirmar: "Descartar",
+      peligro: true,
+    });
+    if (!seguro) return;
+    if (clave) {
+      try {
+        window.sessionStorage.removeItem(clave);
+      } catch {
+        // Nada que borrar.
+      }
+    }
+    const s = idBorrador ? edicion.datos : null;
+    despachar({ tipo: "reemplazar", datos: s ? precargar(s) : datosIniciales() });
+    setPaso("poliza");
+    setVisitados(s ? PASOS_CON_DATOS : []);
+    setRevisiones(s ? revisionesDe(PASOS_CON_DATOS) : sinRevisiones());
+    setTocado(false);
+    setRecuperado(false);
+    setError(null);
+    setErrorDeFechas(false);
+    setEditados([]);
+    setAnuncio("");
+    setGeneracion((g) => g + 1);
+    pedirFoco(null);
+    notificar.info("Descartaste lo cargado.");
   }
 
-  function alternarRol(clave: number, rol: RolPersona) {
-    setPersonas((filas) =>
-      filas.map((f) =>
-        f.clave === clave
-          ? { ...f, roles: f.roles.includes(rol) ? f.roles.filter((r) => r !== rol) : [...f.roles, rol] }
-          : f,
-      ),
-    );
-  }
-
-  function actualizarBien(clave: number, cambios: Partial<FilaBien>) {
-    setBienes((filas) => filas.map((f) => (f.clave === clave ? { ...f, ...cambios } : f)));
-  }
+  // ---------------------------------------------------------------- Pantalla
 
   const titulo = idBorrador ? "Editar borrador" : "Registrar siniestro";
   const migas = idBorrador
@@ -282,326 +431,126 @@ export function FormularioSiniestro({ idBorrador }: { idBorrador: number | null 
     );
   }
 
+  const propsPaso: PropsPaso = { datos, cambiar, mensajes, selector };
+  const indice = indiceDePaso(paso);
+
   return (
     <Vista migas={migas}>
       <EncabezadoPagina
         titulo={titulo}
         subtitulo="Los datos quedan en borrador hasta que confirmes. Solo un siniestro confirmado se analiza."
       />
-      <div className="rejilla rejilla-principal">
-        <div className="columna">
-          <section className="tarjeta">
-            <div className="tarjeta-cabecera">
-              <h2>Póliza</h2>
+      {!hidratado ? (
+        <Cargando />
+      ) : (
+        <>
+          <IndicadorPasos actual={paso} visitados={visitados} conError={conError} alElegir={(destino) => irA(destino)} />
+          {recuperado ? (
+            <div className="aviso aviso-verde" role="status">
+              <p>Recuperamos lo que habías cargado en esta pestaña.</p>
             </div>
-            <div className="tarjeta-cuerpo">
-              <div className="rejilla-campos rejilla-poliza">
-                <Campo etiqueta="Compañía" id="compania" errores={erroresDeCampo(error, "poliza.compania")}>
-                  <input id="compania" value={compania} onChange={(e) => setCompania(e.target.value)} />
-                </Campo>
-                <Campo etiqueta="Número de póliza" id="numero-poliza" errores={erroresDeCampo(error, "poliza.numero")}>
-                  <input id="numero-poliza" value={numeroPoliza} onChange={(e) => setNumeroPoliza(e.target.value)} />
-                </Campo>
-                <Campo etiqueta="Cobertura" id="cobertura" errores={erroresDeCampo(error, "poliza.cobertura")}>
-                  <input id="cobertura" value={cobertura} onChange={(e) => setCobertura(e.target.value)} />
-                </Campo>
-                <Campo etiqueta="Inicio de vigencia" id="inicio-vigencia" errores={erroresDeCampo(error, "poliza.inicio_vigencia")}>
-                  <SelectorFecha
-                    id="inicio-vigencia"
-                    etiqueta="Inicio de vigencia"
-                    valor={inicioVigencia}
-                    onCambio={setInicioVigencia}
-                    atajos={["hoy"]}
-                    {...validez.props("inicio-vigencia")}
-                  />
-                </Campo>
-                <Campo etiqueta="Primer pago" id="primer-pago" errores={erroresDeCampo(error, "poliza.primer_pago")}>
-                  <SelectorFecha
-                    id="primer-pago"
-                    etiqueta="Primer pago"
-                    valor={primerPago}
-                    onCambio={setPrimerPago}
-                    atajos={["hoy"]}
-                    aviso={(v) => (fechaHecho && v > fechaHecho ? "El primer pago es posterior al día del hecho." : null)}
-                    {...validez.props("primer-pago")}
-                  />
-                </Campo>
-              </div>
-            </div>
-          </section>
-
-          <section className="tarjeta">
-            <div className="tarjeta-cabecera">
-              <h2>Hecho</h2>
-            </div>
-            <div className="tarjeta-cuerpo">
-              <div className="rejilla-campos col-3">
-                <Campo etiqueta="Tipo de siniestro" id="tipo" errores={erroresDeCampo(error, "tipo")}>
-                  <input id="tipo" list="tipos-siniestro" value={tipo} onChange={(e) => setTipo(e.target.value)} />
-                  <datalist id="tipos-siniestro">
-                    {TIPOS_SINIESTRO_SUGERIDOS.map((t) => (
-                      <option key={t} value={t} />
-                    ))}
-                  </datalist>
-                </Campo>
-                <Campo etiqueta="Número de denuncia" id="numero-denuncia" errores={erroresDeCampo(error, "numero_denuncia")}>
-                  <input id="numero-denuncia" className="mono" value={numeroDenuncia} onChange={(e) => setNumeroDenuncia(e.target.value)} />
-                </Campo>
-                <Campo etiqueta="Asesor que carga" id="asesor" errores={erroresDeCampo(error, "asesor")}>
-                  <input id="asesor" value={asesor} onChange={(e) => setAsesor(e.target.value)} />
-                </Campo>
-              </div>
-              <div className="rejilla-campos rejilla-fecha-hora">
-                <Campo
-                  etiqueta="Fecha del hecho"
-                  id="fecha-hecho"
-                  ayuda="No puede ser futura ni anterior al inicio de vigencia de la póliza."
-                  errores={erroresDeCampo(error, "fecha_hecho")}
+          ) : null}
+          <div className="rejilla rejilla-principal">
+            <div className="columna">
+              <Fragment key={generacion}>
+                <Paso id="poliza" activo={paso === "poliza"}>
+                  <PasoPoliza {...propsPaso} />
+                </Paso>
+                <Paso id="hecho" activo={paso === "hecho"}>
+                  <PasoHecho {...propsPaso} />
+                </Paso>
+                <Paso
+                  id="personas"
+                  activo={paso === "personas"}
+                  accion={
+                    <button type="button" className="boton boton-chico" onClick={() => cambiar({ tipo: "persona/agregar", clave: nuevaClave() })}>
+                      Agregar
+                    </button>
+                  }
                 >
-                  <SelectorFecha
-                    id="fecha-hecho"
-                    etiqueta="Fecha del hecho"
-                    valor={fechaHecho}
-                    onCambio={setFechaHecho}
-                    minimo={inicioVigencia || undefined}
-                    motivoMinimo={`Es anterior al inicio de vigencia de la póliza (${formatearFecha(inicioVigencia)}): un hecho anterior no es un siniestro.`}
-                    noFuturo
-                    atajos={["hoy", "ayer"]}
-                    requerido
-                    mensajeRequerido="Elegí la fecha del hecho."
-                    {...validez.props("fecha-hecho")}
+                  <PasoPersonas {...propsPaso} />
+                </Paso>
+                <Paso
+                  id="bienes"
+                  activo={paso === "bienes"}
+                  accion={
+                    <button type="button" className="boton boton-chico" onClick={() => cambiar({ tipo: "bien/agregar", clave: nuevaClave() })}>
+                      Agregar
+                    </button>
+                  }
+                >
+                  <PasoBienes {...propsPaso} />
+                </Paso>
+                <Paso id="revision" activo={paso === "revision"}>
+                  <PasoRevision
+                    datos={datos}
+                    requisitos={requisitos}
+                    pasosConError={PASOS.map((p) => p.id).filter((id) => conError.has(id))}
+                    ir={(destino) => irA(destino)}
+                    confirmar={() => void guardar(true)}
+                    enviando={enviando === "confirmar"}
                   />
-                </Campo>
-                <Campo etiqueta="Hora del hecho" id="hora-hecho">
-                  <SelectorHora
-                    id="hora-hecho"
-                    etiqueta="Hora del hecho"
-                    valor={horaHecho}
-                    onCambio={setHoraHecho}
-                    maxima={fechaHecho && fechaHecho === ahora.fecha ? ahora.hora : undefined}
-                    motivoMaxima="Todavía no pasó: la hora no puede ser posterior a la actual."
-                    requerido
-                    mensajeRequerido="Elegí la hora del hecho."
-                    {...validez.props("hora-hecho")}
-                  />
-                </Campo>
-              </div>
-              <div className="rejilla-campos rejilla-fecha-hora">
-                <Campo etiqueta="Fecha de denuncia" id="fecha-denuncia" errores={erroresDeCampo(error, "fecha_denuncia")}>
-                  <SelectorFecha
-                    id="fecha-denuncia"
-                    etiqueta="Fecha de denuncia"
-                    valor={fechaDenuncia}
-                    onCambio={setFechaDenuncia}
-                    atajos={["hoy"]}
-                    aviso={(v) => (fechaHecho && v < fechaHecho ? "La denuncia es anterior al día del hecho. Revisá las fechas." : null)}
-                    {...validez.props("fecha-denuncia")}
-                  />
-                </Campo>
-                <Campo etiqueta="Hora de la denuncia" id="hora-denuncia" errores={erroresDeCampo(error, "hora_denuncia")}>
-                  <SelectorHora
-                    id="hora-denuncia"
-                    etiqueta="Hora de la denuncia"
-                    valor={horaDenuncia}
-                    onCambio={setHoraDenuncia}
-                    {...validez.props("hora-denuncia")}
-                  />
-                </Campo>
-              </div>
-              <Campo etiqueta="Lugar" id="lugar" errores={erroresDeCampo(error, "lugar")}>
-                <input id="lugar" value={lugar} onChange={(e) => setLugar(e.target.value)} />
-              </Campo>
-              <Campo etiqueta="Relato" id="relato" errores={erroresDeCampo(error, "relato")}>
-                <textarea id="relato" value={relato} onChange={(e) => setRelato(e.target.value)} />
-              </Campo>
-              <Campo etiqueta="Intervenciones" id="intervenciones" errores={erroresDeCampo(error, "intervenciones")}>
-                <input
-                  id="intervenciones"
-                  value={intervenciones}
-                  placeholder="Por ejemplo, bomberos y policía"
-                  onChange={(e) => setIntervenciones(e.target.value)}
-                />
-              </Campo>
-              <Campo etiqueta="Documentación adjunta" id="documentacion-adjunta" errores={erroresDeCampo(error, "documentacion_adjunta")}>
-                <textarea id="documentacion-adjunta" value={documentacionAdjunta} onChange={(e) => setDocumentacionAdjunta(e.target.value)} />
-              </Campo>
-            </div>
-          </section>
+                </Paso>
+              </Fragment>
 
-          <section className="tarjeta">
-            <div className="tarjeta-cabecera">
-              <h2>Personas</h2>
-              <button type="button" className="boton boton-chico" onClick={() => setPersonas((f) => [...f, personaVacia()])}>
-                Agregar
-              </button>
-            </div>
-            {personas.length === 0 ? <p className="vacio">Todavía no agregaste personas.</p> : null}
-            {personas.map((p, indice) => (
-              <div className="fila-persona" key={p.clave}>
-                <div className="rejilla-campos col-3">
-                  <Campo etiqueta="Tipo de identificador" id={`p-tipo-${p.clave}`}>
-                    <select
-                      id={`p-tipo-${p.clave}`}
-                      value={p.tipo_identificador}
-                      onChange={(e) => actualizarPersona(p.clave, { tipo_identificador: e.target.value as TipoIdentificador })}
+              <ErrorFormulario error={errorVigente} />
+
+              <div className="asistente-pie">
+                <div>
+                  {indice > 0 ? (
+                    <button
+                      type="button"
+                      className="boton"
+                      aria-label={`Anterior: ${PASOS[indice - 1].nombre}`}
+                      disabled={enviando !== null}
+                      onClick={anterior}
                     >
-                      {TIPOS_IDENTIFICADOR.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </Campo>
-                  <Campo etiqueta="Identificador" id={`p-id-${p.clave}`} errores={erroresDeCampo(error, `personas.${indice}.identificador`)}>
-                    <input
-                      id={`p-id-${p.clave}`}
-                      className="mono"
-                      value={p.identificador}
-                      onChange={(e) => actualizarPersona(p.clave, { identificador: e.target.value })}
-                    />
-                  </Campo>
-                  <Campo etiqueta="Nombre" id={`p-nombre-${p.clave}`} errores={erroresDeCampo(error, `personas.${indice}.nombre`)}>
-                    <input
-                      id={`p-nombre-${p.clave}`}
-                      value={p.nombre}
-                      onChange={(e) => actualizarPersona(p.clave, { nombre: e.target.value })}
-                    />
-                  </Campo>
-                </div>
-                <div className="campo">
-                  <label>Rol</label>
-                  <div className="grupo-casillas">
-                    {ROLES_PERSONA.map((rol) => (
-                      <label className="casilla" key={rol}>
-                        <input type="checkbox" checked={p.roles.includes(rol)} onChange={() => alternarRol(p.clave, rol)} />
-                        {ETIQUETA_ROL_PERSONA[rol]}
-                      </label>
-                    ))}
-                  </div>
-                  {erroresDeCampo(error, `personas.${indice}.roles`).length > 0 ? (
-                    <small className="error-campo">{erroresDeCampo(error, `personas.${indice}.roles`).join(" ")}</small>
+                      Anterior
+                    </button>
                   ) : null}
                 </div>
-                <div className="acciones-fila">
-                  <button
-                    type="button"
-                    className="boton boton-chico boton-peligro"
-                    onClick={() => setPersonas((f) => f.filter((x) => x.clave !== p.clave))}
-                  >
-                    Quitar persona
+                <div className="asistente-pie-derecha">
+                  <button type="button" className="boton" disabled={enviando !== null} onClick={() => void guardar(false)}>
+                    {enviando === "borrador" ? "Guardando…" : "Guardar borrador"}
                   </button>
+                  {paso !== "revision" ? (
+                    <button
+                      type="button"
+                      className="boton boton-principal"
+                      aria-label={`Siguiente: ${PASOS[indice + 1].nombre}`}
+                      disabled={enviando !== null}
+                      onClick={siguiente}
+                    >
+                      Siguiente
+                    </button>
+                  ) : null}
                 </div>
               </div>
-            ))}
-          </section>
-
-          <section className="tarjeta">
-            <div className="tarjeta-cabecera">
-              <h2>Bienes</h2>
-              <button type="button" className="boton boton-chico" onClick={() => setBienes((f) => [...f, bienVacio()])}>
-                Agregar
-              </button>
             </div>
-            {bienes.length === 0 ? <p className="vacio">Todavía no agregaste bienes.</p> : null}
-            {bienes.map((b, indice) => (
-              <div className="fila-persona" key={b.clave}>
-                <div className="rejilla-campos col-3">
-                  <Campo etiqueta="Tipo" id={`b-tipo-${b.clave}`}>
-                    <select id={`b-tipo-${b.clave}`} value={b.tipo} onChange={(e) => actualizarBien(b.clave, { tipo: e.target.value as TipoBien })}>
-                      {TIPOS_BIEN.map((t) => (
-                        <option key={t} value={t}>
-                          {ETIQUETA_TIPO_BIEN[t]}
-                        </option>
-                      ))}
-                    </select>
-                  </Campo>
-                  <Campo
-                    etiqueta="Identificador"
-                    id={`b-id-${b.clave}`}
-                    ayuda="Dominio, IMEI o número de serie. Se normaliza sin espacios ni guiones. Solo los vehículos y las motos se cruzan con otros casos por su patente."
-                    errores={erroresDeCampo(error, `bienes.${indice}.identificador`)}
-                  >
-                    <input
-                      id={`b-id-${b.clave}`}
-                      className="mono"
-                      value={b.identificador}
-                      onChange={(e) => actualizarBien(b.clave, { identificador: e.target.value })}
-                    />
-                  </Campo>
-                  <Campo etiqueta="Descripción" id={`b-desc-${b.clave}`} errores={erroresDeCampo(error, `bienes.${indice}.descripcion`)}>
-                    <input
-                      id={`b-desc-${b.clave}`}
-                      value={b.descripcion}
-                      onChange={(e) => actualizarBien(b.clave, { descripcion: e.target.value })}
-                    />
-                  </Campo>
-                </div>
-                {tieneAtributosDeVehiculo(b.tipo) ? (
-                  <div className="rejilla-campos col-2">
-                    <Campo etiqueta="Motor (opcional)" id={`b-motor-${b.clave}`}>
-                      <input
-                        id={`b-motor-${b.clave}`}
-                        className="mono"
-                        value={b.motor}
-                        onChange={(e) => actualizarBien(b.clave, { motor: e.target.value })}
-                      />
-                    </Campo>
-                    <Campo etiqueta="Chasis (opcional)" id={`b-chasis-${b.clave}`}>
-                      <input
-                        id={`b-chasis-${b.clave}`}
-                        className="mono"
-                        value={b.chasis}
-                        onChange={(e) => actualizarBien(b.clave, { chasis: e.target.value })}
-                      />
-                    </Campo>
-                  </div>
-                ) : null}
-                <Campo etiqueta="Detalle del daño" id={`b-dano-${b.clave}`} errores={erroresDeCampo(error, `bienes.${indice}.detalle_dano`)}>
-                  <input
-                    id={`b-dano-${b.clave}`}
-                    value={b.detalle_dano}
-                    onChange={(e) => actualizarBien(b.clave, { detalle_dano: e.target.value })}
-                  />
-                </Campo>
-                <div className="acciones-fila">
-                  <button
-                    type="button"
-                    className="boton boton-chico boton-peligro"
-                    onClick={() => setBienes((f) => f.filter((x) => x.clave !== b.clave))}
-                  >
-                    Quitar bien
+
+            <div className="columna">
+              <section className="tarjeta">
+                <div className="tarjeta-cuerpo">
+                  <h3>Antes de confirmar</h3>
+                  <p className="subtitulo">
+                    Revisá que el identificador de cada persona y bien sea exacto. Un nombre parecido no alcanza para encontrar
+                    antecedentes.
+                  </p>
+                  <p className="nota-pequena">
+                    Lo que cargás se conserva si recargás la página, mientras no cierres la pestaña ni salgas del sistema.
+                  </p>
+                  <button type="button" className="boton boton-ancho boton-peligro" disabled={enviando !== null} onClick={() => void descartar()}>
+                    Descartar
                   </button>
                 </div>
-              </div>
-            ))}
-          </section>
-        </div>
-
-        <div className="columna">
-          <section className="tarjeta">
-            <div className="tarjeta-cuerpo">
-              <h3>Antes de confirmar</h3>
-              <p className="subtitulo">
-                Revisá que el identificador de cada persona y bien sea exacto. Un nombre parecido no alcanza para encontrar
-                antecedentes.
-              </p>
-              <ErrorFormulario error={error} />
-              <button type="button" className="boton boton-ancho" disabled={enviando !== null} onClick={() => void guardar(false)}>
-                {enviando === "borrador" ? "Guardando…" : "Guardar borrador"}
-              </button>
-              <button
-                type="button"
-                className="boton boton-principal boton-ancho"
-                disabled={enviando !== null}
-                onClick={() => void guardar(true)}
-              >
-                {enviando === "confirmar" ? "Confirmando…" : "Confirmar siniestro"}
-              </button>
+              </section>
             </div>
-          </section>
-          <AvisoVerde>Al confirmar, el sistema busca coincidencias y calcula el indicador con las reglas vigentes.</AvisoVerde>
-        </div>
-      </div>
+          </div>
+        </>
+      )}
+      <span className="solo-lectores" role="status" aria-live="polite">
+        {anuncio}
+      </span>
     </Vista>
   );
 }

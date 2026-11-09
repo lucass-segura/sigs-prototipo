@@ -4,6 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api, EVENTO_VERIFICAR_SESION } from "./api";
+import { borrarGuardados } from "./asistenteSiniestro";
 import type { RespuestaSesion, Rol, Usuario } from "./tipos";
 
 interface ValorSesion {
@@ -57,6 +58,12 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     try {
       await api("/auth/salir", { metodo: "POST", cuerpo: {} });
     } finally {
+      // Lo que quedó a medio cargar en «Registrar siniestro» no sobrevive a la sesión (S33).
+      try {
+        borrarGuardados(window.sessionStorage);
+      } catch {
+        // sessionStorage no disponible: no hay nada que borrar.
+      }
       setUsuario(null);
     }
   }, []);

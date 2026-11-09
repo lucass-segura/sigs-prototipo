@@ -2999,3 +2999,323 @@ textarea {
     opacity: 1;
   }
 }
+
+/* =====================================================================
+   S33 · Asistente «Registrar siniestro» (cinco pasos)
+   Tarjetas sobrias con borde fino; el verde de las maquetas solo marca el paso actual.
+   ===================================================================== */
+
+.paso[hidden] {
+  display: none;
+}
+
+.paso-titulo {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.paso-subtitulo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--texto-suave);
+}
+
+.paso-subtitulo:not(:first-child) {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #ecebe6;
+}
+
+.tarjeta-cuerpo + .tarjeta-cuerpo {
+  border-top: 1px solid var(--borde);
+}
+
+.etiqueta-grupo {
+  font-size: 14px;
+  color: var(--texto-suave);
+}
+
+/* Indicador de pasos */
+
+.pasos {
+  margin-bottom: 20px;
+}
+
+.pasos-compacto {
+  display: none;
+}
+
+.pasos-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.paso-boton,
+.pasos-compacto {
+  width: 100%;
+  background: var(--blanco);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  color: var(--texto);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.paso-boton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px;
+}
+
+.paso-boton:hover,
+.pasos-compacto:hover {
+  background: #f7f6f2;
+}
+
+.paso-marca {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid #bdbdb5;
+  color: var(--texto-suave);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.paso-texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.paso-nombre {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.paso-estado {
+  font-size: 12px;
+  color: var(--rojo);
+}
+
+.paso-completo .paso-marca {
+  border-color: var(--verde-boton);
+  color: var(--verde-texto);
+}
+
+.paso-actual {
+  border-color: var(--verde-boton);
+  background: var(--verde-suave);
+}
+
+.paso-actual:hover {
+  background: var(--verde-suave);
+}
+
+.paso-actual .paso-marca {
+  background: var(--verde-boton);
+  border-color: var(--verde-boton);
+  color: #fff;
+}
+
+.paso-actual .paso-nombre {
+  font-weight: 600;
+}
+
+.paso-error {
+  border-color: #e3b9ba;
+}
+
+.paso-error .paso-marca,
+.paso-actual.paso-error .paso-marca {
+  background: var(--rojo-fondo);
+  border-color: var(--rojo);
+  color: var(--rojo);
+}
+
+.pasos-compacto-accion {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  white-space: nowrap;
+  color: var(--texto-suave);
+  font-size: 13px;
+}
+
+.pasos-compacto-aviso {
+  color: var(--rojo);
+}
+
+/* Botones de abajo */
+
+.asistente-pie {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.asistente-pie-derecha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Paso 5 */
+
+.requisitos {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.requisitos li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 10px;
+}
+
+.requisito-enlaces {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+.requisitos + .aviso {
+  margin-top: 12px;
+}
+
+.requisito-marca {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.requisito-cumplido .requisito-marca {
+  background: var(--verde-suave);
+  border: 1px solid var(--verde-suave-borde);
+  color: var(--verde-texto);
+}
+
+.requisito-falta .requisito-marca {
+  background: var(--ambar-fondo);
+  border: 1px solid var(--ambar-borde);
+  color: var(--ambar-texto);
+}
+
+.resumen {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.resumen-seccion-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #ecebe6;
+}
+
+.resumen-seccion-cabecera h3 {
+  font-size: 15px;
+}
+
+.resumen-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.resumen-lista li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0efea;
+}
+
+.resumen-lista li:last-child {
+  border-bottom: 0;
+}
+
+.confirmar-bloque {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (max-width: 820px) {
+  .pasos {
+    margin-bottom: 14px;
+  }
+
+  .pasos-compacto {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 48px;
+    padding: 10px 14px;
+    font-weight: 600;
+  }
+
+  .pasos-lista {
+    display: none;
+  }
+
+  .pasos-lista.pasos-lista-abierta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 8px;
+  }
+
+  .asistente-pie {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .asistente-pie > div,
+  .asistente-pie-derecha {
+    display: flex;
+    width: 100%;
+  }
+
+  .asistente-pie .boton {
+    flex: 1;
+    min-height: 44px;
+  }
+
+  .resumen-lista li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
